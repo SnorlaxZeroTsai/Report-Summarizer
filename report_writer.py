@@ -1,72 +1,37 @@
-# %%
 from dotenv import load_dotenv
 
 load_dotenv(".env")
 from typing import Literal
 
+import omegaconf
 from langchain_community.chat_models import ChatLiteLLM
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import tool
+from langgraph.checkpoint.memory import MemorySaver
 from langgraph.constants import Send
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import Command, interrupt
 
-from Prompt.prompt import (
-    query_writer_instructions,
-    report_planner_instructions,
-    report_planner_query_writer_instructions,
-    section_grader_instructions,
-    section_writer_instructions,
-    final_section_writer_instructions,
-)
+from Prompt.prompt import (final_section_writer_instructions,
+                           query_writer_instructions,
+                           report_planner_instructions,
+                           report_planner_query_writer_instructions,
+                           section_grader_instructions,
+                           section_writer_instructions)
 from retriever import hybrid_retriever
-from State.state import (
-    ReportState,
-    ReportStateInput,
-    ReportStateOutput,
-    Section,
-    SectionOutputState,
-    SectionState,
-)
-from langgraph.checkpoint.memory import MemorySaver
-from Tools.tools import feedback_formatter, queries_formatter, section_formatter
-from Utils.utils import format_human_feedback, format_search_results, format_sections
+from State.state import (ReportState, ReportStateInput, ReportStateOutput,
+                         Section, SectionOutputState, SectionState)
+from Tools.tools import (feedback_formatter, queries_formatter,
+                         section_formatter)
+from Utils.utils import (format_human_feedback, format_search_results,
+                         format_sections)
 
-# %%
-VERIFY_MODEL_NAME = "gpt-4o-mini"
-MODEL_NAME = "gpt-4o-mini"
-CONCLUDE_MODEL_NAME = "gpt-4o-mini"
-# "gemini/gemini-2.0-flash"
-
-# %%
-DEFAULT_REPORT_STRUCTURE = """Use this structure and Traditional Chinese to create a report on the user-provided topic:
-
-1. Introduction (no research needed)
-   - Brief overview of the topic area (around 1000 words)
-
-2. Main Body Sections:
-   - Each section should focus on a sub-topic of the user-provided topic
-   
-3. Conclusion
-   - Aim for structural element (either a list of table) that distills the main body sections 
-   - Provide a concise summary of the report"""
-
-
-# %%
-@tool
-def section_formatter(name: str, description: str, research: bool, content: str):
-    """Summary
-    Take name, description, research, content and convert them into Section object
-    Args:
-        name (str): Name for this section of the report.
-        description (str): Brief overview of the main topics and concepts to be covered in this section.
-        research (bool): Whether to perform web research for this section of the report.
-        content (str): The content of the section.
-    """
-    return Section(
-        name=name, description=description, research=research, content=content
-    )
+config = omegaconf.OmegaConf.load("report_config.yaml")
+VERIFY_MODEL_NAME = config["VERIFY_MODEL_NAME"]
+MODEL_NAME = config["MODEL_NAME"]
+CONCLUDE_MODEL_NAME = config["CONCLUDE_MODEL_NAME"]
+DEFAULT_REPORT_STRUCTURE = config["CONCLUDE_MODEL_NAME"]
 
 
 def search_relevance_doc(queries):
@@ -349,7 +314,7 @@ section_builder.add_node("write_section", write_section)
 section_builder.add_edge(START, "generate_queries")
 section_builder.add_edge("generate_queries", "search_db")
 section_builder.add_edge("search_db", "write_section")
-# %%
+
 builder = StateGraph(ReportState, input=ReportStateInput, output=ReportStateOutput)
 builder.add_node("generate_report_plan", generate_report_plan)
 builder.add_node("human_feedback", human_feedback)

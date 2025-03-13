@@ -1,35 +1,29 @@
-# %%
 import os
 import pprint
+
 from dotenv import load_dotenv
 
 load_dotenv(".env")
 from typing import Literal
 
+import omegaconf
 from langchain_community.chat_models import ChatLiteLLM
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import Command
 
-from Prompt.simple_prompt import (
-    answer_instructions,
-    doc_judger_instructions,
-    query_writer_instructions,
-    section_grader_instructions,
-)
-from State.simple_state import RAGState, RAGStateInput
-from Tools.simple_tools import (
-    queries_formatter,
-    scores_formatter,
-    final_judge_formatter,
-)
+from Prompt.simple_prompt import (answer_instructions, doc_judger_instructions,
+                                  query_writer_instructions,
+                                  section_grader_instructions)
 from retriever import hybrid_retriever
+from State.simple_state import RAGState, RAGStateInput
+from Tools.simple_tools import (final_judge_formatter, queries_formatter,
+                                scores_formatter)
 
-# %%
-# deepseek/deepseek-chat
-MODEL_NAME = "gemini/gemini-2.0-flash"
-VERIFY_MODEL_NAME = "gemini/gemini-2.0-flash"
+config = omegaconf.OmegaConf.load("report_config.yaml")
+MODEL_NAME = config["MODEL_NAME"]
+VERIFY_MODEL_NAME = config["VERIFY_MODEL_NAME"]
 
 
 def generate_queries(state: RAGStateInput, config: RunnableConfig):
@@ -161,5 +155,3 @@ builder.add_edge("search_relevance_doc", "verify_relevance_doc")
 builder.add_edge("verify_relevance_doc", "write_topic")
 builder.add_edge("write_topic", "check_completeness")
 graph = builder.compile()
-# %%
-    

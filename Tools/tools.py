@@ -36,7 +36,7 @@ def section_formatter(name: str, description: str, research: bool, content: str)
     """
     return {
         "name": name,
-        "description": "description",
+        "description": description,
         "research": research,
         "content": content,
     }
