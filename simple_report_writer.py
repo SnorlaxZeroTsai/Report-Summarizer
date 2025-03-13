@@ -148,60 +148,18 @@ def check_completeness(
         )
 
 
-# %%
-if __name__ == "__main__":
-    builder = StateGraph(RAGState, input=RAGStateInput)
-    builder.add_node("generate_queries", generate_queries)
-    builder.add_node("search_relevance_doc", search_relevance_doc)
-    builder.add_node("verify_relevance_doc", verify_relevance_doc)
-    builder.add_node("write_topic", write_topic)
-    builder.add_node("check_completeness", check_completeness)
+builder = StateGraph(RAGState, input=RAGStateInput)
+builder.add_node("generate_queries", generate_queries)
+builder.add_node("search_relevance_doc", search_relevance_doc)
+builder.add_node("verify_relevance_doc", verify_relevance_doc)
+builder.add_node("write_topic", write_topic)
+builder.add_node("check_completeness", check_completeness)
 
-    builder.add_edge(START, "generate_queries")
-    builder.add_edge("generate_queries", "search_relevance_doc")
-    builder.add_edge("search_relevance_doc", "verify_relevance_doc")
-    builder.add_edge("verify_relevance_doc", "write_topic")
-    builder.add_edge("write_topic", "check_completeness")
-    graph = builder.compile()
-    # %%
-    config = RunnableConfig(
-        {
-            "thread_id": "4",
-            "number_of_queries": 5,
-            "max_search_depth": 8,
-            "recursion_limit": 100,
-        }
-    )
-    topic = """詳細介紹中傑的
-- 公司組成
-- 財務相關資料
-- 產品組成
-- 競爭同業
-- 合作夥伴
-- 客戶組成
-- 產業鏈
-- 技術革新
-- 重大消息
-- 市場面分析
-- 接下來應該繼續關注的重點
-- 詳細投資總結"""
-    input = RAGStateInput(
-        topic=topic,
-        queries=[],
-        information=[],
-    )
-    ans = []
-    pp = pprint.PrettyPrinter(depth=4)
-    for event in graph.stream(
-        input,
-        config,
-        stream_mode="values",
-    ):
-        pp.pprint(dict(event))
-        if (
-            "completed_answer" in event
-            and len(event["queries"]) == 0
-            and len(event["information"]) == 0
-        ):
-            ans.append(event["completed_answer"])
-    # %%
+builder.add_edge(START, "generate_queries")
+builder.add_edge("generate_queries", "search_relevance_doc")
+builder.add_edge("search_relevance_doc", "verify_relevance_doc")
+builder.add_edge("verify_relevance_doc", "write_topic")
+builder.add_edge("write_topic", "check_completeness")
+graph = builder.compile()
+# %%
+    

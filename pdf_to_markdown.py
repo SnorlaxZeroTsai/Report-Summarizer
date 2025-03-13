@@ -9,12 +9,12 @@ from marker.models import create_model_dict
 from marker.output import text_from_rendered
 
 # %%
+target_folder = ""
+files = glob.glob("/*.pdf")
+# %%
 converter = PdfConverter(
     artifact_dict=create_model_dict(),
 )
-# %%
-target_folder = "/pdf_parser/parsed_file_6937"
-files = glob.glob("/pdf_parser/files_6937/*.pdf")
 documents = []
 for file in tqdm.tqdm(files):
     rendered = converter(file)

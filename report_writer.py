@@ -341,65 +341,31 @@ def compile_final_report(state: ReportState):
     return {"final_report": all_sections}
 
 
+section_builder = StateGraph(SectionState, output=SectionOutputState)
+section_builder.add_node("generate_queries", generate_queries)
+section_builder.add_node("search_db", search_db)
+section_builder.add_node("write_section", write_section)
+
+section_builder.add_edge(START, "generate_queries")
+section_builder.add_edge("generate_queries", "search_db")
+section_builder.add_edge("search_db", "write_section")
 # %%
-if __name__ == "__main__":
-    section_builder = StateGraph(SectionState, output=SectionOutputState)
-    section_builder.add_node("generate_queries", generate_queries)
-    section_builder.add_node("search_db", search_db)
-    section_builder.add_node("write_section", write_section)
+builder = StateGraph(ReportState, input=ReportStateInput, output=ReportStateOutput)
+builder.add_node("generate_report_plan", generate_report_plan)
+builder.add_node("human_feedback", human_feedback)
+builder.add_node("build_section_with_web_research", section_builder.compile())
+builder.add_node("gather_complete_section", gather_complete_section)
+builder.add_node("write_final_sections", write_final_sections)
+builder.add_node("compile_final_report", compile_final_report)
 
-    section_builder.add_edge(START, "generate_queries")
-    section_builder.add_edge("generate_queries", "search_db")
-    section_builder.add_edge("search_db", "write_section")
-    # %%
-    builder = StateGraph(ReportState, input=ReportStateInput, output=ReportStateOutput)
-    builder.add_node("generate_report_plan", generate_report_plan)
-    builder.add_node("human_feedback", human_feedback)
-    builder.add_node("build_section_with_web_research", section_builder.compile())
-    builder.add_node("gather_complete_section", gather_complete_section)
-    builder.add_node("write_final_sections", write_final_sections)
-    builder.add_node("compile_final_report", compile_final_report)
-
-    builder.add_edge(START, "generate_report_plan")
-    builder.add_edge("generate_report_plan", "human_feedback")
-    builder.add_edge("build_section_with_web_research", "gather_complete_section")
-    builder.add_conditional_edges(
-        "gather_complete_section",
-        initiate_final_section_writing,
-        ["write_final_sections"],
-    )
-    builder.add_edge("write_final_sections", "compile_final_report")
-    builder.add_edge("compile_final_report", END)
-    graph = builder.compile(checkpointer=MemorySaver())
-    # %%
-    config = RunnableConfig(
-        {
-            "thread_id": "12",
-            "number_of_queries": 3,
-            "max_search_depth": 5,
-            "report_structure": DEFAULT_REPORT_STRUCTURE,
-        }
-    )
-    topic = """詳細介紹天虹的
-    - 公司組成
-    - 財務相關資料
-    - 產品組成
-    - 競爭同業
-    - 合作夥伴
-    - 客戶組成
-    - 產業鏈
-    - 技術革新
-    - 重大消息
-    - 市場面分析
-    - 未來關注重點
-    - 詳細投資總結"""
-    input = ReportStateInput(topic=topic)
-    for event in graph.stream(input, config, stream_mode="updates"):
-        print(dict(event))
-    # %%
-    for event in graph.stream(Command(resume=True), config, stream_mode="updates"):
-        print(dict(event))
-    # %%
-    with open("6937.md", "w") as f:
-        f.write(event["compile_final_report"]["final_report"])
-    # %%
+builder.add_edge(START, "generate_report_plan")
+builder.add_edge("generate_report_plan", "human_feedback")
+builder.add_edge("build_section_with_web_research", "gather_complete_section")
+builder.add_conditional_edges(
+    "gather_complete_section",
+    initiate_final_section_writing,
+    ["write_final_sections"],
+)
+builder.add_edge("write_final_sections", "compile_final_report")
+builder.add_edge("compile_final_report", END)
+graph = builder.compile(checkpointer=MemorySaver())
