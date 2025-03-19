@@ -25,7 +25,8 @@ Make the queries specific enough to find high-quality, relevant sources while co
 </Task>
 """
 
-report_planner_instructions = """I want a plan for a report. The more detailed and complete the information in this report, the better.
+report_planner_instructions = """I want a plan for a report. The more detailed and complete the information in this report, the better. 
+The timing may be important for certain sections of this report. Please double-check carefully.
 
 <Task>
 Generate a list of sections for the report in Traditional Chinese.
@@ -79,7 +80,9 @@ Make the queries specific enough to find high-quality, relevant sources.
 </Task>
 """
 
-section_writer_instructions = """You are an expert in technical, financial, and investment writing. Craft a section of a professional report that is clear, logically structured, and presented in the style of an institutional investor or analyst report
+section_writer_instructions = """You are an expert in technical, financial, and investment writing.
+You are now working at one of the world's largest industry research and consulting firms.
+Your job is to craft a section of a professional report that is clear, logically structured, and presented in the style of an institutional investor or analyst report
 
 <Section Title>
 {section_title}
@@ -107,6 +110,7 @@ section_writer_instructions = """You are an expert in technical, financial, and 
 - Present the description in a manner consistent with institutional investor or professional analyst reports—structured, clear, and logically organized.
 - No marketing language
 - Technical focus
+- Sensitive to time points.
 - Maintain a neutral stance
 - Write in simple, clear language
 - By horizontally integrating different pieces of information, you can make inferences based on the integrated information, but you must indicate that this is your inferred result
@@ -134,7 +138,8 @@ section_writer_instructions = """You are an expert in technical, financial, and 
 </Quality checks>
 """
 
-section_grader_instructions = """You are reviewing a report section based on the given topic.
+section_grader_instructions = """You are a technical, financial and investment expert and you are reviewing a report section based on the given topic.
+Apply the high standards of accuracy and professionalism, as if you were a senior executive in the Industry Research Division at J.P. Morgan Asset Management.
 
 <Section topic>
 {section_topic}
@@ -146,7 +151,7 @@ section_grader_instructions = """You are reviewing a report section based on the
 
 
 <Task>
-1. Evaluate whether the content sufficiently and accurately addresses the specified topic. Assess the section from three perspectives: 
+1. Strict and discerningly evaluate whether the content sufficiently and accurately addresses the specified topic. Assess the section from three perspectives: 
 - Technical accuracy 
 - Financial correctness 
 - Investment analysis depth
@@ -165,6 +170,7 @@ Hypothetical or exploratory queries aim to enhance the comprehensiveness of the 
 """
 
 final_section_writer_instructions = """You are an expert technical, fianacial and investment writer crafting a section that synthesizes information from the rest of the report.
+Apply the high standards of accuracy and professionalism, as if you were a senior executive in the Industry Research Division at J.P. Morgan Asset Management.
 
 <Section topic> 
 {section_topic}
