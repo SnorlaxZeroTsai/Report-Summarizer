@@ -1,37 +1,67 @@
 from dotenv import load_dotenv
 
 load_dotenv(".env")
+import logging
+import sqlite3
+import time
 from typing import Literal
 
 import omegaconf
+from langchain_community.callbacks.infino_callback import get_num_tokens
 from langchain_community.chat_models import ChatLiteLLM
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.runnables import RunnableConfig
-from langchain_core.tools import tool
-from langgraph.checkpoint.memory import MemorySaver
+from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.constants import Send
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import Command, interrupt
 
-from Prompt.prompt import (final_section_writer_instructions,
-                           query_writer_instructions,
-                           report_planner_instructions,
-                           report_planner_query_writer_instructions,
-                           section_grader_instructions,
-                           section_writer_instructions)
+from Prompt.prompt import (
+    final_section_writer_instructions,
+    query_writer_instructions,
+    report_planner_instructions,
+    report_planner_query_writer_instructions,
+    section_grader_instructions,
+    section_writer_instructions,
+)
 from retriever import hybrid_retriever
-from State.state import (ReportState, ReportStateInput, ReportStateOutput,
-                         Section, SectionOutputState, SectionState)
-from Tools.tools import (feedback_formatter, queries_formatter,
-                         section_formatter)
-from Utils.utils import (format_human_feedback, format_search_results,
-                         format_sections)
+from State.state import (
+    ReportState,
+    ReportStateInput,
+    ReportStateOutput,
+    Section,
+    SectionOutputState,
+    SectionState,
+)
+from Tools.tools import feedback_formatter, queries_formatter, section_formatter
+from Utils.utils import (
+    format_human_feedback,
+    format_search_results,
+    format_sections,
+    tavily_search,
+    selenium_api_search,
+    web_search_deduplicate_and_format_sources,
+)
 
 config = omegaconf.OmegaConf.load("report_config.yaml")
 VERIFY_MODEL_NAME = config["VERIFY_MODEL_NAME"]
 MODEL_NAME = config["MODEL_NAME"]
 CONCLUDE_MODEL_NAME = config["CONCLUDE_MODEL_NAME"]
 DEFAULT_REPORT_STRUCTURE = config["CONCLUDE_MODEL_NAME"]
+
+logger = logging.getLogger("AgentLogger")
+logger.setLevel(logging.DEBUG)
+
+console_handler = logging.StreamHandler()
+console_handler.setLevel(logging.INFO)
+
+formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+console_handler.setFormatter(formatter)
+logger.addHandler(console_handler)
+
+logger.info(
+    f'VERIFY_MODEL_NAME : {config["VERIFY_MODEL_NAME"]}, MODEL_NAME : {config["MODEL_NAME"]}, CONCLUDE_MODEL_NAME : {config["CONCLUDE_MODEL_NAME"]}'
+)
 
 
 def search_relevance_doc(queries):
@@ -57,6 +87,14 @@ def generate_report_plan(state: ReportState, config: RunnableConfig):
     configurable = config["configurable"]
     report_structure = configurable["report_structure"]
     number_of_queries = configurable["number_of_queries"]
+    use_web = configurable.get("use_web", False)
+    use_local_db = configurable.get("usb_local_db", False)
+    if not use_web and not use_local_db:
+        raise ValueError("Should use at least one searching tool")
+
+    logger.info(
+        f"topic:{topic}, number_of_queries:{number_of_queries}, use_web:{use_web}"
+    )
 
     # Convert JSON object to string if necessary
     if isinstance(report_structure, dict):
@@ -68,6 +106,7 @@ def generate_report_plan(state: ReportState, config: RunnableConfig):
         tools=[queries_formatter], tool_choice="required"
     )
 
+    logger.info("===Start report planner query generation.===")
     # Format system instructions
     system_instructions_query = report_planner_query_writer_instructions.format(
         topic=topic,
@@ -86,10 +125,28 @@ def generate_report_plan(state: ReportState, config: RunnableConfig):
         ]
     )
     query_list = results.tool_calls[0]["args"]["queries"]
-    results = search_relevance_doc(query_list)
-    source_str = format_search_results(results, 1000)
+    logger.info("===End report planner query generation.===")
+
+    # perform searching
+    logger.info("===Start report planner query searching.===")
+
+    source_str = ""
+    if use_local_db:
+        results = search_relevance_doc(query_list)
+        source_str = format_search_results(results, 1000)
+
+    if use_web:
+        # web_results = tavily_search(query_list)
+        web_results = selenium_api_search(query_list, False)
+        source_str2 = web_search_deduplicate_and_format_sources(
+            web_results, 2000, False
+        )
+        source_str = source_str + "===\n\n" + source_str2
+
+    logger.info("===End report planner query searching.===")
 
     # Format system instructions
+    logger.info("===Start report plan generation.===")
     system_instructions_sections = report_planner_instructions.format(
         topic=topic,
         report_organization=report_structure,
@@ -98,7 +155,7 @@ def generate_report_plan(state: ReportState, config: RunnableConfig):
     )
 
     # Generate sections
-    planner_llm = ChatLiteLLM(model=MODEL_NAME, temperature=0)
+    planner_llm = ChatLiteLLM(model=VERIFY_MODEL_NAME, temperature=0)
     structured_llm = planner_llm.bind_tools([section_formatter], tool_choice="required")
     report_sections = structured_llm.invoke(
         [SystemMessage(content=system_instructions_sections)]
@@ -112,6 +169,7 @@ def generate_report_plan(state: ReportState, config: RunnableConfig):
     sections = [
         Section(**tool_call["args"]) for tool_call in report_sections.tool_calls
     ]
+    logger.info("===End report plan generation.===")
     return {"sections": sections}
 
 
@@ -129,6 +187,7 @@ def human_feedback(
         f"Please provide feedback on the following report plan. \n\n{sections_str}\n\n Does the report plan meet your needs? Pass 'true' to approve the report plan or provide feedback to regenerate the report plan:"
     )
     if isinstance(feedback, bool):
+        logger.info("Human verify pass.")
         return Command(
             goto=[
                 Send(
@@ -141,11 +200,13 @@ def human_feedback(
         )
         # return Command(goto=END)
     elif isinstance(feedback, str):
+        logger.info("Human verify fail.Back to generate_report_plan")
         return Command(
             goto="generate_report_plan",
             update={"feedback_on_report_plan": [feedback]},
         )
     else:
+        logger.error("unknown type of feedback plase use str or bool (True)")
         raise TypeError(f"Interrupt value of type {type(feedback)} is not supported.")
 
 
@@ -162,10 +223,12 @@ def generate_queries(state: SectionState, config: RunnableConfig):
     system_instruction = query_writer_instructions.format(
         topic=section.description, number_of_queries=number_of_queries
     )
+    logger.info(f"== Start generate topic:{section.name} queries==")
     kwargs = structure_llm.invoke(
         [SystemMessage(content=system_instruction)]
         + [HumanMessage(content="Generate search queries on the provided topic.")]
     )
+    logger.info(f"== End generate topic:{section.name} queries==")
 
     tool_calls = kwargs.tool_calls[0]["args"]
     return queries_formatter.invoke(tool_calls)
@@ -173,8 +236,26 @@ def generate_queries(state: SectionState, config: RunnableConfig):
 
 def search_db(state: SectionState, config: RunnableConfig):
     query_list = state["search_queries"]
-    results = search_relevance_doc(query_list)
-    source_str = format_search_results(results, None)
+    configurable = config["configurable"]
+    use_web = configurable.get("use_web", False)
+    use_local_db = configurable.get("usb_local_db", False)
+    if not use_web and not use_local_db:
+        raise ValueError("Should use at least one searching tool")
+
+    logger.info(
+        f"== Start searching topic:{state['section'].name} queries : {query_list}=="
+    )
+
+    source_str = ""
+    if use_local_db:
+        results = search_relevance_doc(query_list)
+        source_str = format_search_results(results, None)
+    if use_web:
+        web_results = selenium_api_search(query_list, True)
+        source_str2 = web_search_deduplicate_and_format_sources(web_results, 5000, True)
+        source_str = source_str + "===\n\n" + source_str2
+    logger.info(f"== End searching topic:{state['section'].name} queries. ==")
+
     return {
         "source_str": source_str,
         "search_iterations": state["search_iterations"] + 1,
@@ -198,7 +279,35 @@ def write_section(
         context=source_str,
         section_content=section.content,
     )
+    num_tokens = get_num_tokens(system_instructions, MODEL_NAME)
+    num_retires = 0
+    logger.info(
+        f"Start write section : {section.name}, num_input_tokens:{num_tokens}, retry:{num_retires}"
+    )
+    retry_limit = 5 if section.content is not None else 10
+    while num_tokens >= 120000 and num_retires < retry_limit:
+        source_str = source_str[:-1500]
+        system_instructions = section_writer_instructions.format(
+            section_title=section.name,
+            section_topic=section.description,
+            context=source_str,
+            section_content=section.content,
+        )
+        num_tokens = get_num_tokens(system_instructions, MODEL_NAME)
+        num_retires += 1
+        logger.info(
+            f"Start write section : {section.name}, num_input_tokens:{num_tokens}, retry:{num_retires}"
+        )
+    if num_retires >= 5:
+        logger.critical(
+            f"There are too many tokens in the source string. Please consider reducing the amount of data searched each time."
+        )
+        return Command(update={"completed_sections": [section]}, goto=END)
+
     # Generate section
+    logger.info(
+        f"Start generate section content of topic:{section.name}, Search iteration:{state['search_iterations']}"
+    )
     writer_model = ChatLiteLLM(model=MODEL_NAME, temperature=0)
     section_content = writer_model.invoke(
         [SystemMessage(content=system_instructions)]
@@ -207,6 +316,9 @@ def write_section(
                 content="Generate a report section based on the provided sources."
             )
         ]
+    )
+    logger.info(
+        f"End generate section content of topic:{section.name}, Search iteration:{state['search_iterations']}"
     )
 
     # Write content to the section object
@@ -218,6 +330,9 @@ def write_section(
     )
 
     # Feedback
+    logger.info(
+        f"Start grade section content of topic:{section.name}, Search iteration:{state['search_iterations']}"
+    )
     structured_llm = ChatLiteLLM(model=VERIFY_MODEL_NAME, temperature=0).bind_tools(
         tools=[feedback_formatter], tool_choice="required"
     )
@@ -229,13 +344,21 @@ def write_section(
             )
         ]
     )
+    logger.info(
+        f"Start grade section content of topic:{section.name}, Search iteration:{state['search_iterations']}"
+    )
+
     feedback = feedback.tool_calls[0]["args"]
-    print(feedback["grade"])
     if feedback["grade"] == "pass" or state["search_iterations"] >= max_search_depth:
+        logger.info(f"Section:{section.name} pass model check or reach search depth.")
         # Publish the section to completed sections
         return Command(update={"completed_sections": [section]}, goto=END)
     else:
         # Update the existing section with new content and update search queries
+        time.sleep(20)
+        logger.info(
+            f'Section:{section.name} fail model check.follow_up_queries:{feedback["follow_up_queries"]}'
+        )
         return Command(
             update={
                 "search_queries": feedback["follow_up_queries"],
@@ -276,6 +399,7 @@ def write_final_sections(state: SectionState, config: RunnableConfig):
         section_topic=section.description,
         context=completed_report_sections,
     )
+    logger.info(f"Start write section:{section.name}")
     writer_model = ChatLiteLLM(model=CONCLUDE_MODEL_NAME, temperature=0)
     section_content = writer_model.invoke(
         [SystemMessage(content=system_instructions)]
@@ -285,6 +409,7 @@ def write_final_sections(state: SectionState, config: RunnableConfig):
             )
         ]
     )
+    logger.info(f"End write section:{section.name}")
 
     # Write content to section
     section.content = section_content.content
@@ -293,6 +418,7 @@ def write_final_sections(state: SectionState, config: RunnableConfig):
 
 def compile_final_report(state: ReportState):
     # Get sections
+    logger.info(f"Aggregate final report")
     sections = state["sections"]
     completed_sections = {s.name: s.content for s in state["completed_sections"]}
 
@@ -333,4 +459,8 @@ builder.add_conditional_edges(
 )
 builder.add_edge("write_final_sections", "compile_final_report")
 builder.add_edge("compile_final_report", END)
-graph = builder.compile(checkpointer=MemorySaver())
+sqlite_conn = sqlite3.connect("checkpoints.sqlite", check_same_thread=False)
+saver = SqliteSaver(sqlite_conn)
+# MemorySaver()
+graph = builder.compile(checkpointer=saver)
+# %%
