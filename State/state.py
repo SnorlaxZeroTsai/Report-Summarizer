@@ -57,6 +57,7 @@ class SectionState(TypedDict):
     section: Section  # Report section
     search_iterations: int  # Number of search iterations done
     search_queries: list[SearchQuery]  # List of search queries
+    follow_up_queries: list[SearchQuery]  # List of follow-up search queries
     source_str: str  # String of formatted source content from web search
     # String of any completed sections from research to write final sections
     report_sections_from_research: str
