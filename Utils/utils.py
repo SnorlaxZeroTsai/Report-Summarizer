@@ -8,9 +8,7 @@ from tavily import TavilyClient
 from State.state import Section
 import os
 
-host = os.environ["SEARCH_HOST"]
-port = os.environ["SEARCH_PORT"]
-
+host, port = os.environ.get("SEARCH_HOST", None), os.environ.get("SEARCH_PORT", None)
 tavily_client = TavilyClient()
 
 
@@ -84,7 +82,12 @@ def selenium_api_search(search_queries, include_raw_content: True):
     for query in search_queries:
         output = requests.get(
             f"http://{host}:{port}/search_and_crawl",
-            params={"query": query, "include_raw_content": include_raw_content},
+            params={
+                "query": query,
+                "include_raw_content": include_raw_content,
+                "max_results": 5,
+                "timeout": 40,
+            },
         )
         search_docs.append(json.loads(output.content))
     return search_docs

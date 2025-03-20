@@ -254,7 +254,7 @@ def search_db(state: SectionState, config: RunnableConfig):
         web_results = selenium_api_search(query_list, True)
         source_str2 = web_search_deduplicate_and_format_sources(web_results, 5000, True)
         source_str = source_str + "===\n\n" + source_str2
-    logger.info(f"== End searching topic:{state['section'].name} queries. ==")
+    logger.info(f"== End searching topic:{state['section'].name}. ==")
 
     return {
         "source_str": source_str,
@@ -267,17 +267,24 @@ def write_section(
 ) -> Command[Literal[END, "search_db"]]:
     # Get state
     section = state["section"]
+    follow_up_queries = state.get("follow_up_queries", None)
+    follow_up_questions = ""
+    if follow_up_queries is not None:
+        for idx, q in enumerate(follow_up_queries):
+            follow_up_questions += f"{idx+1}. {q}\n"
     source_str = state["source_str"]
 
     configurable = config["configurable"]
     max_search_depth = configurable["max_search_depth"]
 
     # Format system instructions
+
     system_instructions = section_writer_instructions.format(
         section_title=section.name,
         section_topic=section.description,
         context=source_str,
         section_content=section.content,
+        follow_up_queries=follow_up_questions,
     )
     num_tokens = get_num_tokens(system_instructions, MODEL_NAME)
     num_retires = 0
@@ -355,7 +362,6 @@ def write_section(
         return Command(update={"completed_sections": [section]}, goto=END)
     else:
         # Update the existing section with new content and update search queries
-        time.sleep(20)
         logger.info(
             f'Section:{section.name} fail model check.follow_up_queries:{feedback["follow_up_queries"]}'
         )
@@ -363,6 +369,7 @@ def write_section(
             update={
                 "search_queries": feedback["follow_up_queries"],
                 "section": section,
+                "follow_up_queries": feedback["follow_up_queries"],
             },
             goto="search_db",
         )
