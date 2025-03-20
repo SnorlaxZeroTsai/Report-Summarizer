@@ -75,8 +75,8 @@ The queries should:
 1. Be related to the topic 
 2. Examine different aspects of the topic
 3. The output of queries should in the python list format
-4. Generate traditional chinese queries only.
-Make the queries specific enough to find high-quality, relevant sources.
+4. If the topic is only related to Taiwan, use Traditional Chinese queries only.
+5. If the topic is related to Europe, America, the broader Asia-Pacific region, or globally, you can use both Traditional Chinese and English queries.
 </Task>
 """
 
@@ -96,6 +96,10 @@ Your job is to craft a section of a professional report that is clear, logically
 {section_content}
 </Existing section content>
 
+<Follow-up questions(if populated)>
+{follow_up_queries}
+</Follow-up questions>
+
 <Source material>
 {context}
 </Source material>
@@ -103,6 +107,8 @@ Your job is to craft a section of a professional report that is clear, logically
 <Guidelines for writing>
 1. If the existing section content is not populated, write a new section from scratch.
 2. If the existing section content is populated, write a new section that synthesizes the existing section content with the new information.
+3. If no follow-up questions are provided, write a new section from scratch.
+4. If follow-up questions are provided and relevant information exists in the source material, please include this information when writing a new section that synthesizes the existing section content with the new information.
 </Guidelines for writing>
 
 <Length and style>
@@ -155,10 +161,10 @@ Apply the high standards of accuracy and professionalism, as if you were a senio
 - Technical accuracy 
 - Financial correctness 
 - Investment analysis depth
-
-2. If the section fails to meet any of these criteria, generate specific follow-up search queries in Traditional Chinese to gather the missing information.
-
-3. In addition to addressing the original question, create hypothetical or exploratory queries in Traditional Chinese that could assist in horizontally integrating related information about the topic.
+2. If the section fails to meet any of these criteria, generate specific follow-up search queries.
+3. If the follow-up search query is only related to Taiwan, use Traditional Chinese queries only.
+4. If the follow-up search query is related to Europe, America, the broader Asia-Pacific region, or globally, you can use both Traditional Chinese and English queries.
+5. In addition to addressing the original question, create hypothetical or exploratory queries that could assist in horizontally integrating related information about the topic.
 Hypothetical or exploratory queries aim to enhance the comprehensiveness of the report by exploring factors 
 - macroeconomic trends
 - political environment
