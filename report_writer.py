@@ -3,10 +3,17 @@ from dotenv import load_dotenv
 load_dotenv(".env")
 import logging
 import sqlite3
-import time
 from typing import Literal
 
 import omegaconf
+
+config = omegaconf.OmegaConf.load("research_report_config.yaml")
+PROMPT_STYLE = config["PROMPT_STYLE"]
+VERIFY_MODEL_NAME = config["VERIFY_MODEL_NAME"]
+MODEL_NAME = config["MODEL_NAME"]
+CONCLUDE_MODEL_NAME = config["CONCLUDE_MODEL_NAME"]
+DEFAULT_REPORT_STRUCTURE = config["CONCLUDE_MODEL_NAME"]
+
 from langchain_community.callbacks.infino_callback import get_num_tokens
 from langchain_community.chat_models import ChatLiteLLM
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -16,14 +23,12 @@ from langgraph.constants import Send
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import Command, interrupt
 
-from Prompt.prompt import (
-    final_section_writer_instructions,
-    query_writer_instructions,
-    report_planner_instructions,
-    report_planner_query_writer_instructions,
-    section_grader_instructions,
-    section_writer_instructions,
-)
+if PROMPT_STYLE == "research":
+    from Prompt.technical_research_prompt import *
+elif PROMPT_STYLE == "industry":
+    from Prompt.industry_prompt import *
+else:
+    raise ValueError("Only support indutry and technical_research prompt template")
 from retriever import hybrid_retriever
 from State.state import (
     ReportState,
@@ -38,16 +43,9 @@ from Utils.utils import (
     format_human_feedback,
     format_search_results,
     format_sections,
-    tavily_search,
     selenium_api_search,
     web_search_deduplicate_and_format_sources,
 )
-
-config = omegaconf.OmegaConf.load("report_config.yaml")
-VERIFY_MODEL_NAME = config["VERIFY_MODEL_NAME"]
-MODEL_NAME = config["MODEL_NAME"]
-CONCLUDE_MODEL_NAME = config["CONCLUDE_MODEL_NAME"]
-DEFAULT_REPORT_STRUCTURE = config["CONCLUDE_MODEL_NAME"]
 
 logger = logging.getLogger("AgentLogger")
 logger.setLevel(logging.DEBUG)
@@ -354,8 +352,25 @@ def write_section(
     logger.info(
         f"Start grade section content of topic:{section.name}, Search iteration:{state['search_iterations']}"
     )
+    try:
+        feedback = feedback.tool_calls[0]["args"]
+    except IndexError as e:
+        logger.error(e)
+        logger.info(
+            f"Start grade section content of topic:{section.name}, Search iteration:{state['search_iterations']}"
+        )
+        structured_llm = ChatLiteLLM(model=VERIFY_MODEL_NAME, temperature=0).bind_tools(
+            tools=[feedback_formatter], tool_choice="required"
+        )
+        feedback = structured_llm.invoke(
+            [SystemMessage(content=section_grader_instructions_formatted)]
+            + [
+                HumanMessage(
+                    content="Grade the report and consider follow-up questions for missing information"
+                )
+            ]
+        )
 
-    feedback = feedback.tool_calls[0]["args"]
     if feedback["grade"] == "pass" or state["search_iterations"] >= max_search_depth:
         logger.info(f"Section:{section.name} pass model check or reach search depth.")
         # Publish the section to completed sections
