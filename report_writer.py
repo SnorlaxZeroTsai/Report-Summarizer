@@ -7,7 +7,7 @@ from typing import Literal
 
 import omegaconf
 
-config = omegaconf.OmegaConf.load("research_report_config.yaml")
+config = omegaconf.OmegaConf.load("report_config.yaml")
 PROMPT_STYLE = config["PROMPT_STYLE"]
 VERIFY_MODEL_NAME = config["VERIFY_MODEL_NAME"]
 MODEL_NAME = config["MODEL_NAME"]
@@ -75,6 +75,7 @@ def search_relevance_doc(queries):
 
 
 def generate_report_plan(state: ReportState, config: RunnableConfig):
+    logger.info(config)
     topic = state["topic"]
     feedback = state.get("feedback_on_report_plan", None)
 
@@ -86,7 +87,7 @@ def generate_report_plan(state: ReportState, config: RunnableConfig):
     report_structure = configurable["report_structure"]
     number_of_queries = configurable["number_of_queries"]
     use_web = configurable.get("use_web", False)
-    use_local_db = configurable.get("usb_local_db", False)
+    use_local_db = configurable.get("use_local_db", False)
     if not use_web and not use_local_db:
         raise ValueError("Should use at least one searching tool")
 
@@ -236,7 +237,7 @@ def search_db(state: SectionState, config: RunnableConfig):
     query_list = state["search_queries"]
     configurable = config["configurable"]
     use_web = configurable.get("use_web", False)
-    use_local_db = configurable.get("usb_local_db", False)
+    use_local_db = configurable.get("use_local_db", False)
     if not use_web and not use_local_db:
         raise ValueError("Should use at least one searching tool")
 
@@ -250,6 +251,7 @@ def search_db(state: SectionState, config: RunnableConfig):
         source_str = format_search_results(results, None)
     if use_web:
         web_results = selenium_api_search(query_list, True)
+        print(web_results)
         source_str2 = web_search_deduplicate_and_format_sources(web_results, 5000, True)
         source_str = source_str + "===\n\n" + source_str2
     logger.info(f"== End searching topic:{state['section'].name}. ==")

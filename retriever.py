@@ -27,7 +27,7 @@ if config["raw_file_path"] is not None:
     text_splitter = RecursiveCharacterTextSplitter(
         chunk_size=config["split_chunk_size"],
         chunk_overlap=config["split_chunk_overlap"],
-        separators=["\n\n\n\n", "\n\n\n", "\n\n"],
+        separators=["\n\n\n\n", "\n\n\n", "\n\n", "\n", ""],
     )
     doc_splits = text_splitter.split_documents(documents)
 

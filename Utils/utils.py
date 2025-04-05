@@ -7,9 +7,79 @@ from langchain.schema import Document
 from tavily import TavilyClient
 from State.state import Section
 import os
+from langchain.retrievers import BM25Retriever
+from langchain.retrievers.ensemble import EnsembleRetriever
+from langchain.schema import Document
+from langchain_community.vectorstores import Chroma
+from langchain_huggingface import HuggingFaceEmbeddings
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 
-host, port = os.environ.get("SEARCH_HOST", None), os.environ.get("SEARCH_PORT", None)
+host = os.environ.get("SEARCH_HOST", None)
+port = os.environ.get("SEARCH_PORT", None)
+temp_files_path = os.environ.get("temp_dir", "./temp")
+os.makedirs(temp_files_path, exist_ok=True)
 tavily_client = TavilyClient()
+
+
+# %%
+class ContentExtractor(object):
+    def __init__(self, temp_dir=temp_files_path, k=3):
+        self.k = k
+        self.temp_dir = temp_dir
+        embeddings = HuggingFaceEmbeddings(model_name="BAAI/bge-m3")
+        self.docs = [Document("None", metadata={"path": "None"})]
+        self.vectorstore = Chroma.from_documents(
+            documents=self.docs,
+            collection_name="temp_data",
+            embedding=embeddings,
+        )
+        self.bm25_retriever = BM25Retriever.from_documents(self.docs)
+        self.bm25_retriever.k = self.k
+        self.hybrid_retriever = EnsembleRetriever(
+            retrievers=[
+                self.vectorstore.as_retriever(search_kwargs={"k": self.k}),
+                self.bm25_retriever,
+            ],
+            weights=[0.4, 0.6],
+        )
+
+    def update_new_docs(self, files):
+        text_splitter = RecursiveCharacterTextSplitter(
+            chunk_size=2000,
+            chunk_overlap=250,
+            separators=["\n\n\n\n", "\n\n\n", "\n\n", "\n"],
+        )
+        new_docs = []
+        for file in files:
+            with open(file, "r") as f:
+                texts = f.read()
+            name = file.split("/")[-1].replace(".txt", "")
+            new_docs.append(Document(texts, metadata={"path": name}))
+        new_docs = text_splitter.split_documents(new_docs)
+        return new_docs
+
+    def update(self, files):
+        new_docs = self.update_new_docs(files)
+        self.vectorstore.add_documents(new_docs)
+        self.docs.extend(new_docs)
+
+        self.bm25_retriever = BM25Retriever.from_documents(self.docs)
+        self.bm25_retriever.k = self.k
+        self.hybrid_retriever = EnsembleRetriever(
+            retrievers=[
+                self.vectorstore.as_retriever(search_kwargs={"k": self.k}),
+                self.bm25_retriever,
+            ],
+            weights=[0.4, 0.6],
+        )
+
+    def query(self, q):
+        info = []
+        results = self.hybrid_retriever.get_relevant_documents(q)
+        for res in results:
+            if res not in info:
+                info.append(res)
+        return info
 
 
 def format_human_feedback(feedbacks: list[str]) -> str:
@@ -77,6 +147,9 @@ def tavily_search(search_queries, include_raw_content: True):
     return search_docs
 
 
+content_extractor = ContentExtractor()
+
+
 def selenium_api_search(search_queries, include_raw_content: True):
     search_docs = []
     for query in search_queries:
@@ -89,7 +162,37 @@ def selenium_api_search(search_queries, include_raw_content: True):
                 "timeout": 40,
             },
         )
-        search_docs.append(json.loads(output.content))
+        output = json.loads(output.content)
+        if include_raw_content:
+            large_files = []
+            for result in output["results"]:
+                if result.get("raw_content", "") is None:
+                    continue
+                try:
+                    if len(result.get("raw_content", "")) >= 20000:
+                        file_path = f"{temp_files_path}/{result['title']}.txt"
+                        with open(file_path, "w") as f:
+                            f.write(result["raw_content"])
+                        result["raw_content"] = ""
+                        large_files.append(file_path)
+                except Exception as e:
+                    print(e)
+                    print(result)
+
+            if len(large_files) > 0:
+                content_extractor.update(large_files)
+                search_results = content_extractor.query(query)
+                for results in search_results:
+                    output["results"].append(
+                        {
+                            "url": results.metadata["path"],
+                            "title": results.metadata["path"],
+                            "content": "Raw content part has the most relevant information.",
+                            "raw_content": results.page_content,
+                        }
+                    )
+
+        search_docs.append(output)
     return search_docs
 
 

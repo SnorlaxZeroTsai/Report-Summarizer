@@ -126,9 +126,14 @@ section_writer_instructions = """You are a technical research and learning assis
 - Focus on technical depth and practical learning insights
 - Strive to provide abundant real-world project information, including open-source projects (e.g., GitHub, HackMD), code examples (relevant algorithms), project portfolios, recommended research papers, and classic textbook references.
 - Include mathematical formulas, code examples, or pseudocode where appropriate
-- Start with **key takeaways or main insight**
 - Use ## for section title (Markdown format)
-- If the section is related to the learning schedule or timeline, please indicate the time reference in the title. e.g day-k section_topic
+  * If the section is related to the learning schedule or timeline, please indicate the time reference in the title. e.g day-k section_topic
+- Section content 
+  * start with **key takeaways or main insight**
+  * If the code is provided. Use following format
+  ```code
+  code content
+  ```
 - Only use structural element IF it helps clarify your point:
   * Either focused table comparing key items (using Markdown table syntax)
   * Or list using proper Markdown list syntax:
@@ -138,10 +143,7 @@ section_writer_instructions = """You are a technical research and learning assis
 - End with ### Sources that references the below source material formatted as:
   * List each source with title, date, and URL
   * Format: `- Title `
-- If the code is provided. Please Use following format
-```code
-code content
-```
+
 </Length and style>
 
 <Quality checks>

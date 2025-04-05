@@ -34,7 +34,12 @@ Generate a list of sections for the report in Traditional Chinese.
 Each section should have the fields:
 
 - Name - Name for this section of the report (Traditional Chinese).
-- Description - Brief overview of the main topics covered in this section (Traditional Chinese).
+- Write a detailed and complete overview of the main topics and learning objectives of this section.
+  * This description will be used to support downstream web search and data retrieval (e.g., Google Search, Bing Search), so it must follow these guidelines:
+  * Explicitly state the full background context — do not omit important events, policies, or key terms
+  * Clearly describe what will be analyzed, explored, or created in this section 
+  * Use search-friendly phrasing and terminology that would appear in authoritative sources or search engine queries.
+  
 - Research - Whether to perform web research for this section of the report.
 - Content - The content of the section, which you will leave blank for now.
 
@@ -112,13 +117,14 @@ Your job is to craft a section of a professional report that is clear, logically
 </Guidelines for writing>
 
 <Length and style>
-- Strict 100-500 word limit (excluding title, sources ,mathematical formulas and tables or pictures)
+- Strict 100-800 word limit (excluding title, sources ,mathematical formulas and tables or pictures)
 - Present the description in a manner consistent with institutional investor or professional analyst reports—structured, clear, and logically organized.
 - No marketing language
 - Technical focus
 - Sensitive to time points.
 - Maintain a neutral stance
 - Write in simple, clear language
+- Prefer quantitative metrics over qualitative adjectives in the description
 - By horizontally integrating different pieces of information, you can make inferences based on the integrated information, but you must indicate that this is your inferred result
 - Start with your most important key point in **bold**
 - Use ## for section title (Markdown format)
@@ -135,12 +141,13 @@ Your job is to craft a section of a professional report that is clear, logically
 </Length and style>
 
 <Quality checks>
-- Exactly 100-500 word limit (excluding title, sources ,mathematical formulas and tables or pictures)
+- Exactly 100-800 word limit (excluding title, sources ,mathematical formulas and tables or pictures)
 - Careful use of structural element (table or list) and only if it helps clarify your point
 - Starts with bold insight
 - No preamble prior to creating the section content
 - Sources cited at end
 - Use traditional chinese to write the report
+- Use quantitative metrics
 </Quality checks>
 """
 
@@ -161,6 +168,7 @@ Apply the high standards of accuracy and professionalism, as if you were a senio
 - Technical accuracy 
 - Financial correctness 
 - Investment analysis depth
+- Quantitative metrics
 2. If the section fails to meet any of these criteria, generate specific follow-up search queries.
 - generate 3 search queries that will help gather comprehensive information above the section topic. 
 - Phrases suitable for search; avoid being overly declarative.
@@ -193,7 +201,7 @@ Apply the high standards of accuracy and professionalism, as if you were a senio
 
 For Introduction:
 - Use # for report title (Markdown format)
-- 200-500 word limit
+- 200-1000 word limit
 - Use Traditinal Chinese
 - Provide readers with a clear understanding of the industry as a whole, the report’s logical structure, and its core insights.
 - Write in simple and clear language
@@ -204,7 +212,7 @@ For Introduction:
 
 For Conclusion/Summary:
 - Use ## for section title (Markdown format)
-- 200-500 word limit
+- 200-1000 word limit
 - Use Traditinal Chinese
 - Horizontally integrate information from different sections and provide objective, neutral insights.
 - For comparative reports:
@@ -228,7 +236,7 @@ For Conclusion/Summary:
 
 <Quality Checks>
 - Use Traditinal Chinese
-- For introduction: 200-500 word limit, # for report title, no structural elements, no sources section
-- For conclusion: 200-500 word limit, ## for section title
+- For introduction: 200-1000 word limit, # for report title, no structural elements, no sources section
+- For conclusion: 200-1000 word limit, ## for section title
 - Do not include word count or any preamble in your response
 </Quality Checks>"""
