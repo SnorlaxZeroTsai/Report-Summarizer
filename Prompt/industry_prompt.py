@@ -34,11 +34,12 @@ Generate a list of sections for the report in Traditional Chinese.
 Each section should have the fields:
 
 - Name - Name for this section of the report (Traditional Chinese).
-- Write a detailed and complete overview of the main topics and learning objectives of this section.
+- description - Write a detailed and complete overview of the main topics and learning objectives of this section.
   * This description will be used to support downstream web search and data retrieval (e.g., Google Search, Bing Search), so it must follow these guidelines:
   * Explicitly state the full background context — do not omit important events, policies, or key terms
   * Clearly describe what will be analyzed, explored, or created in this section 
   * Use search-friendly phrasing and terminology that would appear in authoritative sources or search engine queries.
+  * Structure the chapters with a focus on quantitative content
   
 - Research - Whether to perform web research for this section of the report.
 - Content - The content of the section, which you will leave blank for now.
