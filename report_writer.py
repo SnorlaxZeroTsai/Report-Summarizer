@@ -7,12 +7,13 @@ from typing import Literal
 
 import omegaconf
 
-config = omegaconf.OmegaConf.load("report_config.yaml")
+config = omegaconf.OmegaConf.load("research_report_config.yaml")
 PROMPT_STYLE = config["PROMPT_STYLE"]
 VERIFY_MODEL_NAME = config["VERIFY_MODEL_NAME"]
 MODEL_NAME = config["MODEL_NAME"]
+WRITER_MODEL_NAME = config["WRITER_MODEL_NAME"]
 CONCLUDE_MODEL_NAME = config["CONCLUDE_MODEL_NAME"]
-DEFAULT_REPORT_STRUCTURE = config["CONCLUDE_MODEL_NAME"]
+DEFAULT_REPORT_STRUCTURE = config["REPORT_STRUCTURE"]
 
 from langchain_community.callbacks.infino_callback import get_num_tokens
 from langchain_community.chat_models import ChatLiteLLM
@@ -251,8 +252,9 @@ def search_db(state: SectionState, config: RunnableConfig):
         source_str = format_search_results(results, None)
     if use_web:
         web_results = selenium_api_search(query_list, True)
-        print(web_results)
-        source_str2 = web_search_deduplicate_and_format_sources(web_results, 5000, True)
+        source_str2 = web_search_deduplicate_and_format_sources(
+            web_results, 20000, True
+        )
         source_str = source_str + "===\n\n" + source_str2
     logger.info(f"== End searching topic:{state['section'].name}. ==")
 
@@ -315,7 +317,7 @@ def write_section(
     logger.info(
         f"Start generate section content of topic:{section.name}, Search iteration:{state['search_iterations']}"
     )
-    writer_model = ChatLiteLLM(model=MODEL_NAME, temperature=0)
+    writer_model = ChatLiteLLM(model=WRITER_MODEL_NAME, temperature=0)
     section_content = writer_model.invoke(
         [SystemMessage(content=system_instructions)]
         + [
