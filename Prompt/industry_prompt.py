@@ -114,23 +114,23 @@ Your job is to craft a section of a professional report that is clear, logically
 1. If the existing section content is not populated, write a new section from scratch.
 2. If the existing section content is populated, write a new section that synthesizes the existing section content with the new information.
 3. If no follow-up questions are provided, write a new section from scratch.
-4. If follow-up questions are provided and relevant information exists in the source material, please include this information when writing a new section that synthesizes the existing section content with the new information.
+4. If follow-up questions are provided and relevant information exists in the source material, please include this information when writing a new section(if related to the section topic) that synthesizes the existing section content with the new information.
 </Guidelines for writing>
 
 <Length and style>
-- Strict 100-800 word limit (excluding title, sources ,mathematical formulas and tables or pictures)
-- Present the description in a manner consistent with institutional investor or professional analyst reports—structured, clear, and logically organized.
-- No marketing language
-- Technical focus
-- Sensitive to time points.
-- Maintain a neutral stance
-- Write in simple, clear language
-- Prefer quantitative metrics over qualitative adjectives in the description
-- By horizontally integrating different pieces of information, you can make inferences based on the integrated information, but you must indicate that this is your inferred result
+- Strict 100-500 word limit (excluding title, sources ,mathematical formulas and tables or pictures)
 - Start with your most important key point in **bold**
-- Use ## for section title (Markdown format)
+- Prefer quantitative metrics over qualitative adjectives in the description
+- Writing in simple, clear language. Avoid marketing language; maintain a neutral tone
+- Technical focus
+- Time points aware
+- Present the description in a manner consistent with institutional investor or professional analyst reports—structured, clear, and logically organized.
+- Use ## only once per section for section title (Markdown format)
 - Only use structural element IF it helps clarify your point:
-  * Either a focused table comparing key items (using Markdown table syntax)
+  * Either a focused table (using Markdown table syntax) for
+    - Comparing key items
+    - Finanacial information
+    - Quantitative information  
   * Or a list using proper Markdown list syntax:
     - Use `*` or `-` for unordered lists
     - Use `1.` for ordered lists
@@ -142,13 +142,14 @@ Your job is to craft a section of a professional report that is clear, logically
 </Length and style>
 
 <Quality checks>
-- Exactly 100-800 word limit (excluding title, sources ,mathematical formulas and tables or pictures)
+- Exactly 100-500 word limit (excluding title, sources ,mathematical formulas and tables or pictures)
 - Careful use of structural element (table or list) and only if it helps clarify your point
 - Starts with bold insight
 - No preamble prior to creating the section content
 - Sources cited at end
 - Use traditional chinese to write the report
-- Use quantitative metrics
+- Use quantitative metrics(if exist)
+- Only contain relevant information
 </Quality checks>
 """
 
