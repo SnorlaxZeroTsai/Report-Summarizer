@@ -25,7 +25,7 @@ A modular and automated research report generation tool designed for **in-depth 
 | File/Folder             | Description                                                        |
 | ----------------------- | ------------------------------------------------------------------ |
 | `report_writer.py`      | Main logic for planning and writing reports via LangGraph          |
-| `Prompt/`               | Prompt templates for 1. industry or research report styles         |
+| `Prompt/`               | Prompt templates for industry or research report styles            |
 | `State/`                | Definitions of section state, report state, and transitions        |
 | `Tools/`                | Formatters for feedback, query generation, and section output      |
 | `Utils/`                | Utility functions including search deduplication, web API wrappers |
