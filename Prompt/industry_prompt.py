@@ -118,7 +118,7 @@ Your job is to craft a section of a professional report that is clear, logically
 </Guidelines for writing>
 
 <Length and style>
-- Strict 100-500 word limit (excluding title, sources ,mathematical formulas and tables or pictures)
+- Strict 100-1000 word limit (excluding title, sources ,mathematical formulas and tables or pictures)
 - Start with your most important key point in **bold**
 - Prefer quantitative metrics over qualitative adjectives in the description
 - Writing in simple, clear language. Avoid marketing language; maintain a neutral tone
@@ -142,7 +142,7 @@ Your job is to craft a section of a professional report that is clear, logically
 </Length and style>
 
 <Quality checks>
-- Exactly 100-500 word limit (excluding title, sources ,mathematical formulas and tables or pictures)
+- Exactly 100-1000 word limit (excluding title, sources ,mathematical formulas and tables or pictures)
 - Careful use of structural element (table or list) and only if it helps clarify your point
 - Starts with bold insight
 - No preamble prior to creating the section content
