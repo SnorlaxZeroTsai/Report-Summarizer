@@ -45,9 +45,9 @@ class ContentExtractor(object):
 
     def update_new_docs(self, files):
         text_splitter = RecursiveCharacterTextSplitter(
-            chunk_size=2000,
+            chunk_size=5000,
             chunk_overlap=250,
-            separators=["\n\n\n\n", "\n\n\n", "\n\n", "\n"],
+            separators=["\n\n\n\n", "\n\n\n", "\n\n", "\n", ""],
         )
         new_docs = []
         for file in files:
@@ -169,7 +169,7 @@ def selenium_api_search(search_queries, include_raw_content: True):
                 if result.get("raw_content", "") is None:
                     continue
                 try:
-                    if len(result.get("raw_content", "")) >= 20000:
+                    if len(result.get("raw_content", "")) >= 5000:
                         file_path = f"{temp_files_path}/{result['title']}.txt"
                         with open(file_path, "w") as f:
                             f.write(result["raw_content"])
