@@ -94,12 +94,11 @@ The implemented options include metadata for institutional investment reports an
 
 ---
 
-### Audio Process Engine
+### Audio Processing Engine
 Doing...
 
 ---
 ### Information Retrieval Strategy
----
 Our RAG process, inspired by Ilya Rice's award-winning strategy
 
 `retriever.py` : Enhances retrieval quality by indexing content in small, overlapping chunks (300-character size, 50-character overlap) for precise search results.
