@@ -22,16 +22,16 @@ A modular and automated research report generation tool designed for **in-depth 
 
 ## 📁 File Overview
 
-| File/Folder             | Description                                                        |
-| ----------------------- | ------------------------------------------------------------------ |
-| `report_writer.py`      | Main logic for planning and writing reports via LangGraph          |
-| `Prompt/`               | Prompt templates for industry or research report styles            |
-| `State/`                | Definitions of section state, report state, and transitions        |
-| `Tools/`                | Formatters for feedback, query generation, and section output      |
-| `Utils/`                | Utility functions including search deduplication, web API wrappers |
-| `retriever.py`          | Hybrid retriever using local embedding search + keyword web search |
-| `report_config.yaml`    | Model settings, report prompt structure, and generation style      |
-| `retriever_config.yaml` | Retriever behavior, chunking parameters, and embedding model       |
+| File/Folder             | Description                                                                     |
+| ----------------------- | ------------------------------------------------------------------------------- |
+| `report_writer.py`      | Main logic for planning and writing reports via LangGraph                       |
+| `Prompt/`               | Prompt templates for industry or research report styles                         |
+| `State/`                | Definitions of section state, report state, and transitions                     |
+| `Tools/`                | Formatters for feedback, query generation, and section output                   |
+| `Utils/`                | Utility functions including search deduplication, web API wrappers, pdf parsing |
+| `retriever.py`          | Hybrid retriever using local embedding search + keyword web search              |
+| `report_config.yaml`    | Model settings, report prompt structure, and generation style                   |
+| `retriever_config.yaml` | Retriever behavior, chunking parameters, and embedding model                    |
 
 ---
 
@@ -75,6 +75,39 @@ TAVILY_API_KEY =
 SEARCH_HOST = 
 SEARCH_PORT = 
 ```
+
+---
+## 📄 Advanced Information Retrieval
+
+###  PDF Processing Engine 
+Utils/pdf_preprocessor.py
+
+This module provides a powerful PDF processing pipeline designed to convert unstructured pdf files into structured, RAG-optimized JSON data. It uses LLMs to intelligently parse, analyze, and enrich the content, making complex information within PDFs easily accessible for your agent.
+
+#### Core Features:
+`High-Fidelity Conversion`: Uses the marker library to accurately convert PDFs into structured Markdown, preserving tables and document layout.
+
+`Automated Metadata Extraction`: An LLM automatically extracts and formats key information from each pdf file(the first 5000 characters).
+The implemented options include metadata for institutional investment reports and academic research papers.
+
+`Context-Aware Table Summarization`: Instead of just extracting tables, the system identifies their surrounding context (headings and paragraphs). It then uses an LLM to generate a natural language summary for each table, explaining its purpose and contents. This makes complex tabular data highly discoverable via semantic search.
+
+---
+
+### Audio Process Engine
+Doing...
+
+---
+### Information Retrieval Strategy
+---
+Our RAG process, inspired by Ilya Rice's award-winning strategy
+
+`retriever.py` : Enhances retrieval quality by indexing content in small, overlapping chunks (300-character size, 50-character overlap) for precise search results.
+
+
+`Utils/utils.py track_expanded_context function` : When a relevant chunk is found, we retrieve a larger "window" of text surrounding it from the original document. This "small-to-large" approach provides the LLM with complete, coherent context, avoiding fragmented information and significantly improving the accuracy of the final output. 
+
+During web searches, if a single webpage contains too much information, we also apply the method mentioned above. We perform information retrieval on the webpage's content instead of directly passing the entire content to the LLM agent.
 
 ---
 
@@ -122,3 +155,4 @@ for event in graph.stream(Command(resume='Refine the ... section with more infor
 with open("report.md", "w") as f:
     f.write(event["compile_final_report"]["final_report"])
 ```
+
