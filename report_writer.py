@@ -7,7 +7,7 @@ from typing import Literal
 
 import omegaconf
 
-config = omegaconf.OmegaConf.load("research_report_config.yaml")
+config = omegaconf.OmegaConf.load("report_config.yaml")
 PROMPT_STYLE = config["PROMPT_STYLE"]
 VERIFY_MODEL_NAME = config["VERIFY_MODEL_NAME"]
 MODEL_NAME = config["MODEL_NAME"]
@@ -30,6 +30,8 @@ elif PROMPT_STYLE == "industry":
     from Prompt.industry_prompt import *
 else:
     raise ValueError("Only support indutry and technical_research prompt template")
+from copy import deepcopy
+
 from retriever import hybrid_retriever
 from State.state import (
     ReportState,
@@ -42,10 +44,11 @@ from State.state import (
 from Tools.tools import feedback_formatter, queries_formatter, section_formatter
 from Utils.utils import (
     format_human_feedback,
-    format_search_results,
+    format_search_results_with_metadata,
     format_sections,
     selenium_api_search,
     web_search_deduplicate_and_format_sources,
+    track_expanded_context,
 )
 
 logger = logging.getLogger("AgentLogger")
@@ -64,14 +67,26 @@ logger.info(
 
 
 def search_relevance_doc(queries):
+    seen = set()
     info = []
     for q in queries:
         if q == "":
             continue
         results = hybrid_retriever.get_relevant_documents(q)
         for res in results:
-            if res not in info:
+            if res.page_content in seen:
+                continue
+            seen.add(res.page_content)
+            if "table" in res.metadata:
                 info.append(res)
+            else:
+                expanded_content = track_expanded_context(
+                    res.metadata["content"], res.page_content, 5000, 2500
+                )
+                return_res = deepcopy(res)
+                return_res.metadata["content"] = expanded_content
+                info.append(return_res)
+
     return info
 
 
@@ -133,16 +148,13 @@ def generate_report_plan(state: ReportState, config: RunnableConfig):
     source_str = ""
     if use_local_db:
         results = search_relevance_doc(query_list)
-        source_str = format_search_results(results, 1000)
-
+        source_str = format_search_results_with_metadata(results)
     if use_web:
-        # web_results = tavily_search(query_list)
         web_results = selenium_api_search(query_list, False)
         source_str2 = web_search_deduplicate_and_format_sources(
             web_results, 2000, False
         )
         source_str = source_str + "===\n\n" + source_str2
-
     logger.info("===End report planner query searching.===")
 
     # Format system instructions
@@ -249,12 +261,10 @@ def search_db(state: SectionState, config: RunnableConfig):
     source_str = ""
     if use_local_db:
         results = search_relevance_doc(query_list)
-        source_str = format_search_results(results, None)
+        source_str = format_search_results_with_metadata(results)
     if use_web:
         web_results = selenium_api_search(query_list, True)
-        source_str2 = web_search_deduplicate_and_format_sources(
-            web_results, 20000, True
-        )
+        source_str2 = web_search_deduplicate_and_format_sources(web_results, 5000, True)
         source_str = source_str + "===\n\n" + source_str2
     logger.info(f"== End searching topic:{state['section'].name}. ==")
 
@@ -288,7 +298,7 @@ def write_section(
         section_content=section.content,
         follow_up_queries=follow_up_questions,
     )
-    num_tokens = get_num_tokens(system_instructions, MODEL_NAME)
+    num_tokens = get_num_tokens(system_instructions, "gpt-4o-mini")
     num_retires = 0
     logger.info(
         f"Start write section : {section.name}, num_input_tokens:{num_tokens}, retry:{num_retires}"
@@ -302,7 +312,7 @@ def write_section(
             context=source_str,
             section_content=section.content,
         )
-        num_tokens = get_num_tokens(system_instructions, MODEL_NAME)
+        num_tokens = get_num_tokens(system_instructions, "gpt-4o-mini")
         num_retires += 1
         logger.info(
             f"Start write section : {section.name}, num_input_tokens:{num_tokens}, retry:{num_retires}"

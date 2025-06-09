@@ -1,18 +1,20 @@
 import json
+import logging
 import math
-from typing import List, Literal, TypedDict
+import os
+from copy import deepcopy
+from typing import List
 
 import requests
-from langchain.schema import Document
-from tavily import TavilyClient
-from State.state import Section
-import os
 from langchain.retrievers import BM25Retriever
 from langchain.retrievers.ensemble import EnsembleRetriever
 from langchain.schema import Document
 from langchain_community.vectorstores import Chroma
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
+from tavily import TavilyClient
+
+from State.state import Section
 
 host = os.environ.get("SEARCH_HOST", None)
 port = os.environ.get("SEARCH_PORT", None)
@@ -20,14 +22,55 @@ temp_files_path = os.environ.get("temp_dir", "./temp")
 os.makedirs(temp_files_path, exist_ok=True)
 tavily_client = TavilyClient()
 
+logger = logging.getLogger("AgentLogger")
+logger.setLevel(logging.DEBUG)
+
+console_handler = logging.StreamHandler()
+console_handler.setLevel(logging.INFO)
+
+formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+console_handler.setFormatter(formatter)
+logger.addHandler(console_handler)
+
 
 # %%
+def track_expanded_context(
+    original_context: str,
+    critical_context: str,
+    forward_capacity: int = 10000,
+    backward_capacity: int = 2500,
+):
+    start_idx = original_context.find(critical_context)
+    if start_idx != -1:
+        end_idx = start_idx + len(critical_context)
+        desired_start_idx = max(0, start_idx - backward_capacity)
+        desired_end_idx = min(len(original_context), end_idx + forward_capacity)
+        start_boundary_pos = original_context.rfind("\n\n", 0, desired_start_idx)
+        if start_boundary_pos == -1:
+            final_start_idx = 0
+        else:
+            final_start_idx = start_boundary_pos + 2
+
+        end_boundary_pos = original_context.find("\n\n", desired_end_idx)
+        if end_boundary_pos == -1:
+            final_end_idx = len(original_context)
+        else:
+            final_end_idx = end_boundary_pos
+        expanded_context = original_context[final_start_idx:final_end_idx]
+
+        return expanded_context
+
+    else:
+        logger.critical("Can not find critical content")
+        return None
+
+
 class ContentExtractor(object):
     def __init__(self, temp_dir=temp_files_path, k=3):
         self.k = k
         self.temp_dir = temp_dir
         embeddings = HuggingFaceEmbeddings(model_name="BAAI/bge-m3")
-        self.docs = [Document("None", metadata={"path": "None"})]
+        self.docs = [Document("None", metadata={"path": "None", "content": "None"})]
         self.vectorstore = Chroma.from_documents(
             documents=self.docs,
             collection_name="temp_data",
@@ -40,7 +83,7 @@ class ContentExtractor(object):
                 self.vectorstore.as_retriever(search_kwargs={"k": self.k}),
                 self.bm25_retriever,
             ],
-            weights=[0.4, 0.6],
+            weights=[0.7, 0.3],
         )
 
     def update_new_docs(self, files):
@@ -54,7 +97,7 @@ class ContentExtractor(object):
             with open(file, "r") as f:
                 texts = f.read()
             name = file.split("/")[-1].replace(".txt", "")
-            new_docs.append(Document(texts, metadata={"path": name}))
+            new_docs.append(Document(texts, metadata={"path": name, "content": texts}))
         new_docs = text_splitter.split_documents(new_docs)
         return new_docs
 
@@ -70,15 +113,22 @@ class ContentExtractor(object):
                 self.vectorstore.as_retriever(search_kwargs={"k": self.k}),
                 self.bm25_retriever,
             ],
-            weights=[0.4, 0.6],
+            weights=[0.7, 0.3],
         )
 
     def query(self, q):
-        info = []
+        seen, info = set(), []
         results = self.hybrid_retriever.get_relevant_documents(q)
         for res in results:
-            if res not in info:
-                info.append(res)
+            if res.page_content in seen:
+                continue
+            seen.add(res.page_content)
+            expanded_content = track_expanded_context(
+                res.metadata["content"], res.page_content, 2500, 1250
+            )
+            return_res = deepcopy(res)
+            return_res.metadata["content"] = expanded_content
+            info.append(res)
         return info
 
 
@@ -118,6 +168,7 @@ def format_search_results(results: List[Document], char_limit: int = 500):
     formatted_text = "Sources:\n\n"
     if char_limit is None:
         char_limit = math.inf
+
     for doc in results:
         formatted_text += f"Source {doc.metadata['path']}:\n===\n"
         formatted_text += f"Content from source:"
@@ -129,6 +180,32 @@ def format_search_results(results: List[Document], char_limit: int = 500):
             )
         else:
             formatted_text += f"{raw_content}\n\n"
+
+    return formatted_text
+
+
+def format_search_results_with_metadata(results: List[Document]):
+    formatted_text = "Sources:\n\n"
+    for doc in results:
+        if "table" in doc.metadata:
+            formatted_text += f"Source {doc.metadata['path']}:\n===\n"
+            formatted_text += "Report Date:\n"
+            formatted_text += doc.metadata["date"]
+            formatted_text += "Context Heading:\n"
+            formatted_text += doc.metadata["context_heading"]
+            formatted_text += "Context Paragraph:\n"
+            formatted_text += doc.metadata["context_paragraph"]
+            formatted_text += "Summary:\n"
+            formatted_text += doc.metadata["summary"]
+            formatted_text += "Table Content:\n"
+            formatted_text += doc.metadata["table"]
+
+        elif "content" in doc.metadata:
+            formatted_text += f"Source {doc.metadata['path']}:\n===\n"
+            formatted_text += "Report Date:\n"
+            formatted_text += doc.metadata["date"]
+            formatted_text += "Source Content:\n"
+            formatted_text += doc.metadata["content"]
 
     return formatted_text
 
@@ -166,6 +243,7 @@ def selenium_api_search(search_queries, include_raw_content: True):
         if include_raw_content:
             large_files = []
             for result in output["results"]:
+                result["title"] = result["title"].replace("/", "_")
                 if result.get("raw_content", "") is None:
                     continue
                 try:
@@ -173,11 +251,13 @@ def selenium_api_search(search_queries, include_raw_content: True):
                         file_path = f"{temp_files_path}/{result['title']}.txt"
                         with open(file_path, "w") as f:
                             f.write(result["raw_content"])
-                        result["raw_content"] = ""
                         large_files.append(file_path)
+
                 except Exception as e:
-                    print(e)
-                    print(result)
+                    logger.error(e)
+
+                finally:
+                    result["raw_content"] = ""
 
             if len(large_files) > 0:
                 content_extractor.update(large_files)
@@ -188,7 +268,7 @@ def selenium_api_search(search_queries, include_raw_content: True):
                             "url": results.metadata["path"],
                             "title": results.metadata["path"],
                             "content": "Raw content part has the most relevant information.",
-                            "raw_content": results.page_content,
+                            "raw_content": results.metadata["content"],
                         }
                     )
 
