@@ -87,37 +87,6 @@ def process_document(name, date, information):
     return doc
 
 
-def track_expanded_context(
-    original_context: str,
-    critical_context: str,
-    forward_capacity: int = 10000,
-    backward_capacity: int = 2500,
-):
-    start_idx = original_context.find(critical_context)
-    if start_idx != -1:
-        end_idx = start_idx + len(critical_context)
-        desired_start_idx = max(0, start_idx - backward_capacity)
-        desired_end_idx = min(len(original_context), end_idx + forward_capacity)
-        start_boundary_pos = original_context.rfind("\n\n", 0, desired_start_idx)
-        if start_boundary_pos == -1:
-            final_start_idx = 0
-        else:
-            final_start_idx = start_boundary_pos + 2  # 長度 of '\n\n' is 2
-
-        end_boundary_pos = original_context.find("\n\n", desired_end_idx)
-        if end_boundary_pos == -1:
-            final_end_idx = len(original_context)
-        else:
-            final_end_idx = end_boundary_pos
-        expanded_context = original_context[final_start_idx:final_end_idx]
-
-        return expanded_context
-
-    else:
-        logger.critical("Can not find critical content")
-        return None
-
-
 # %%
 config = omegaconf.OmegaConf.load("retriever_config.yaml")
 files = []

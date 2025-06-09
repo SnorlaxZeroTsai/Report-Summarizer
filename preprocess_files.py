@@ -2,7 +2,6 @@
 import glob
 from Utils.pdf_processor import PDFProcessor
 import dotenv
-
 dotenv.load_dotenv(".env")
 
 # %%
