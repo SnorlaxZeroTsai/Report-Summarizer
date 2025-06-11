@@ -9,11 +9,21 @@ import omegaconf
 
 config = omegaconf.OmegaConf.load("report_config.yaml")
 PROMPT_STYLE = config["PROMPT_STYLE"]
+
 VERIFY_MODEL_NAME = config["VERIFY_MODEL_NAME"]
+BACKUP_VERIFY_MODEL_NAME = config["BACKUP_VERIFY_MODEL_NAME"]
+
 MODEL_NAME = config["MODEL_NAME"]
+BACKUP_MODEL_NAME = config["BACKUP_MODEL_NAME"]
+
 WRITER_MODEL_NAME = config["WRITER_MODEL_NAME"]
+BACKUP_WRITER_MODEL_NAME = config["BACKUP_WRITER_MODEL_NAME"]
+
 CONCLUDE_MODEL_NAME = config["CONCLUDE_MODEL_NAME"]
+BACKUP_CONCLUDE_MODEL_NAME = config["BACKUP_CONCLUDE_MODEL_NAME"]
+
 DEFAULT_REPORT_STRUCTURE = config["REPORT_STRUCTURE"]
+
 
 from langchain_community.callbacks.infino_callback import get_num_tokens
 from langchain_community.chat_models import ChatLiteLLM
@@ -50,6 +60,7 @@ from Utils.utils import (
     web_search_deduplicate_and_format_sources,
     track_expanded_context,
 )
+from typing import List
 
 logger = logging.getLogger("AgentLogger")
 logger.setLevel(logging.DEBUG)
@@ -64,6 +75,23 @@ logger.addHandler(console_handler)
 logger.info(
     f'VERIFY_MODEL_NAME : {config["VERIFY_MODEL_NAME"]}, MODEL_NAME : {config["MODEL_NAME"]}, CONCLUDE_MODEL_NAME : {config["CONCLUDE_MODEL_NAME"]}'
 )
+
+
+def call_llm(
+    model_name: str, backup_model_name: str, prompt: List, tool=None, tool_choice=None
+):
+    try:
+        model = ChatLiteLLM(model=model_name, temperature=0)
+        if tool:
+            model = model.bind_tools(tools=tool, tool_choice=tool_choice)
+        response = model.invoke(prompt)
+    except Exception as e:
+        logger.error(e)
+        model = ChatLiteLLM(model=backup_model_name, temperature=0)
+        if tool:
+            model = model.bind_tools(tools=tool, tool_choice=tool_choice)
+        response = model.invoke(prompt)
+    return response
 
 
 def search_relevance_doc(queries):
@@ -115,12 +143,6 @@ def generate_report_plan(state: ReportState, config: RunnableConfig):
     if isinstance(report_structure, dict):
         report_structure = str(report_structure)
 
-    # Set writer model (model used for query writing and section writing)
-    writer_model = ChatLiteLLM(model=MODEL_NAME, temperature=0)
-    structured_llm = writer_model.bind_tools(
-        tools=[queries_formatter], tool_choice="required"
-    )
-
     logger.info("===Start report planner query generation.===")
     # Format system instructions
     system_instructions_query = report_planner_query_writer_instructions.format(
@@ -130,14 +152,17 @@ def generate_report_plan(state: ReportState, config: RunnableConfig):
         feedback=feedback,
     )
 
-    # Generate queries
-    results = structured_llm.invoke(
+    results = call_llm(
+        MODEL_NAME,
+        BACKUP_MODEL_NAME,
         [SystemMessage(content=system_instructions_query)]
         + [
             HumanMessage(
                 content="Generate search queries that will help with planning the sections of the report."
             )
-        ]
+        ],
+        tool=[queries_formatter],
+        tool_choice="required",
     )
     query_list = results.tool_calls[0]["args"]["queries"]
     logger.info("===End report planner query generation.===")
@@ -165,19 +190,19 @@ def generate_report_plan(state: ReportState, config: RunnableConfig):
         context=source_str,
         feedback=feedback,
     )
-
     # Generate sections
-    planner_llm = ChatLiteLLM(model=VERIFY_MODEL_NAME, temperature=0)
-    structured_llm = planner_llm.bind_tools([section_formatter], tool_choice="required")
-    report_sections = structured_llm.invoke(
-        [SystemMessage(content=system_instructions_sections)]
+    report_sections = call_llm(
+        VERIFY_MODEL_NAME,
+        BACKUP_VERIFY_MODEL_NAME,
+        prompt=[SystemMessage(content=system_instructions_sections)]
         + [
             HumanMessage(
                 content="Generate the sections of the report. Your response must include a 'sections' field containing a list of sections. Each section must have: name, description, plan, research, and content fields."
             )
-        ]
+        ],
+        tool=[section_formatter],
+        tool_choice="required",
     )
-    # Get sections
     sections = [
         Section(**tool_call["args"]) for tool_call in report_sections.tool_calls
     ]
@@ -284,13 +309,12 @@ def write_section(
     if follow_up_queries is not None:
         for idx, q in enumerate(follow_up_queries):
             follow_up_questions += f"{idx+1}. {q}\n"
-    source_str = state["source_str"]
 
+    source_str = state["source_str"]
     configurable = config["configurable"]
     max_search_depth = configurable["max_search_depth"]
 
     # Format system instructions
-
     system_instructions = section_writer_instructions.format(
         section_title=section.name,
         section_topic=section.description,
@@ -327,14 +351,15 @@ def write_section(
     logger.info(
         f"Start generate section content of topic:{section.name}, Search iteration:{state['search_iterations']}"
     )
-    writer_model = ChatLiteLLM(model=WRITER_MODEL_NAME, temperature=0)
-    section_content = writer_model.invoke(
+    section_content = call_llm(
+        WRITER_MODEL_NAME,
+        BACKUP_WRITER_MODEL_NAME,
         [SystemMessage(content=system_instructions)]
         + [
             HumanMessage(
                 content="Generate a report section based on the provided sources."
             )
-        ]
+        ],
     )
     logger.info(
         f"End generate section content of topic:{section.name}, Search iteration:{state['search_iterations']}"
@@ -352,16 +377,17 @@ def write_section(
     logger.info(
         f"Start grade section content of topic:{section.name}, Search iteration:{state['search_iterations']}"
     )
-    structured_llm = ChatLiteLLM(model=VERIFY_MODEL_NAME, temperature=0).bind_tools(
-        tools=[feedback_formatter], tool_choice="required"
-    )
-    feedback = structured_llm.invoke(
+    feedback = call_llm(
+        VERIFY_MODEL_NAME,
+        BACKUP_VERIFY_MODEL_NAME,
         [SystemMessage(content=section_grader_instructions_formatted)]
         + [
             HumanMessage(
                 content="Grade the report and consider follow-up questions for missing information"
             )
-        ]
+        ],
+        tool=[feedback_formatter],
+        tool_choice="required",
     )
     logger.info(
         f"Start grade section content of topic:{section.name}, Search iteration:{state['search_iterations']}"
@@ -373,16 +399,17 @@ def write_section(
         logger.info(
             f"Start grade section content of topic:{section.name}, Search iteration:{state['search_iterations']}"
         )
-        structured_llm = ChatLiteLLM(model=VERIFY_MODEL_NAME, temperature=0).bind_tools(
-            tools=[feedback_formatter], tool_choice="required"
-        )
-        feedback = structured_llm.invoke(
+        feedback = call_llm(
+            VERIFY_MODEL_NAME,
+            BACKUP_VERIFY_MODEL_NAME,
             [SystemMessage(content=section_grader_instructions_formatted)]
             + [
                 HumanMessage(
                     content="Grade the report and consider follow-up questions for missing information"
                 )
-            ]
+            ],
+            tool=[feedback_formatter],
+            tool_choice="required",
         )
 
     if feedback["grade"] == "pass" or state["search_iterations"] >= max_search_depth:
@@ -436,14 +463,15 @@ def write_final_sections(state: SectionState, config: RunnableConfig):
         context=completed_report_sections,
     )
     logger.info(f"Start write section:{section.name}")
-    writer_model = ChatLiteLLM(model=CONCLUDE_MODEL_NAME, temperature=0)
-    section_content = writer_model.invoke(
+    section_content = call_llm(
+        CONCLUDE_MODEL_NAME,
+        BACKUP_CONCLUDE_MODEL_NAME,
         [SystemMessage(content=system_instructions)]
         + [
             HumanMessage(
                 content="Generate a report section based on the provided sources."
             )
-        ]
+        ],
     )
     logger.info(f"End write section:{section.name}")
 
