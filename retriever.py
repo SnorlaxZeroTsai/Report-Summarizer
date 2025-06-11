@@ -92,7 +92,7 @@ config = omegaconf.OmegaConf.load("retriever_config.yaml")
 files = []
 if config["raw_file_path"] is not None:
     for f in config["raw_file_path"]:
-        files.extend(glob.glob(f))
+        files.extend(glob.glob(f"{f}/*.*"))
 
     documents, table_documents = [], []
     for file in files:
