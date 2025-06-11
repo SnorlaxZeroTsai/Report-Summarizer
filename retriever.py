@@ -13,7 +13,7 @@ from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 import logging
 
-logger = logging.getLogger("AgentLogger")
+logger = logging.getLogger("Retriever")
 logger.setLevel(logging.DEBUG)
 
 console_handler = logging.StreamHandler()

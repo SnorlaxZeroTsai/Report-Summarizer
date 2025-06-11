@@ -22,7 +22,7 @@ temp_files_path = os.environ.get("temp_dir", "./temp")
 os.makedirs(temp_files_path, exist_ok=True)
 tavily_client = TavilyClient()
 
-logger = logging.getLogger("AgentLogger")
+logger = logging.getLogger("Utils")
 logger.setLevel(logging.DEBUG)
 
 console_handler = logging.StreamHandler()
