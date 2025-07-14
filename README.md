@@ -115,7 +115,7 @@ During web searches, if a single webpage contains too much information, we also 
 ### 1. Configure the research
 
 ```python
-from langgraph_core.runnables import RunnableConfig
+from langchain_core.runnables import RunnableConfig
 from State.state import ReportStateInput
 from report_writer import graph, DEFAULT_REPORT_STRUCTURE
 
