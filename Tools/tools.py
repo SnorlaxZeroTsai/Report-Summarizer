@@ -3,6 +3,16 @@ from typing import List, Literal
 
 
 @tool
+def quality_formatter(score: int):
+    """Summary
+    Take the score of searching results of a query
+    Args:
+        score:int = the score of query document pair
+    """
+    return {"score": score}
+
+
+@tool
 def queries_formatter(thought: str, queries: List[str]):
     """Summary
     Take thoughts and a list of queries convert them into Queries object
@@ -16,7 +26,7 @@ def queries_formatter(thought: str, queries: List[str]):
 @tool
 def feedback_formatter(grade: Literal["pass", "fail"], follow_up_queries: List[str]):
     """Summary
-    Take grad and follow up queries convert them into Feedback object
+    Take grade and follow up queries convert them into Feedback object
     Args:
         grade (Literal[pass,fail]): Evaluation result indicating whether the response meets requirements ('pass') or needs revision ('fail').
         follow_up_squeries (List[str]): List of follow-up search queries.
