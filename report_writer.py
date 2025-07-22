@@ -256,17 +256,18 @@ def generate_queries(state: SectionState, config: RunnableConfig):
     configurable = config["configurable"]
     number_of_queries = configurable["number_of_queries"]
 
-    llm = ChatLiteLLM(model=MODEL_NAME, temperature=0)
-    structure_llm = llm.bind_tools(tools=[queries_formatter], tool_choice="required")
-
     system_instruction = query_writer_instructions.format(
         topic=section.description, number_of_queries=number_of_queries
     )
 
     logger.info(f"== Start generate topic:{section.name} queries==")
-    kwargs = structure_llm.invoke(
-        [SystemMessage(content=system_instruction)]
-        + [HumanMessage(content="Generate search queries on the provided topic.")]
+    kwargs = call_llm(
+        MODEL_NAME,
+        BACKUP_MODEL_NAME,
+        prompt=[SystemMessage(content=system_instruction)]
+        + [HumanMessage(content="Generate search queries on the provided topic.")],
+        tool=[queries_formatter],
+        tool_choice="required",
     )
     logger.info(f"== End generate topic:{section.name} queries==")
 
@@ -275,26 +276,30 @@ def generate_queries(state: SectionState, config: RunnableConfig):
 
 
 def check_search_quality(query: str, document: str) -> int:
-    llm = ChatLiteLLM(model=MODEL_NAME, temperature=0)
-    structure_llm = llm.bind_tools(tools=[quality_formatter], tool_choice="required")
-    
     score = None
     retry = 0
     while retry < 5 and score is None:
         system_instruction = results_filter_instruction.format(
             query=query, document=document
         )
-        results = structure_llm.invoke(
-            [SystemMessage(content=system_instruction)]
+        results = call_llm(
+            MODEL_NAME,
+            BACKUP_MODEL_NAME,
+            prompt=[SystemMessage(content=system_instruction)]
             + [
                 HumanMessage(
                     content="Generate the score of document on the provided query."
                 )
-            ]
+            ],
+            tool=[quality_formatter],
+            tool_choice="required",
         )
-        score = results.tool_calls[0]["args"]["score"]
+        try:
+            score = results.tool_calls[0]["args"]["score"]
+        except (IndexError, KeyError):
+            logger.warning(f"Failed to get score from tool call for query: {query}")
         retry += 1
-    
+
     return score
 
 
@@ -303,17 +308,20 @@ def queries_rewriter(queries: List[str]) -> List[str]:
     for idx, q in enumerate(queries):
         str_queries += f"{idx}. {q}\n"
 
-    llm = ChatLiteLLM(model=MODEL_NAME, temperature=0)
-    structure_llm = llm.bind_tools(tools=[queries_formatter], tool_choice="required")
     system_instruction = query_rewriter_instruction.format(
         queries_to_refine=str_queries
     )
-    results = structure_llm.invoke(
-        [SystemMessage(content=system_instruction)]
-        + [HumanMessage(content="Refine search queries on the provided queries.")]
+    results = call_llm(
+        MODEL_NAME,
+        BACKUP_MODEL_NAME,
+        prompt=[SystemMessage(content=system_instruction)]
+        + [HumanMessage(content="Refine search queries on the provided queries.")],
+        tool=[queries_formatter],
+        tool_choice="required",
     )
     queries = results.tool_calls[0]["args"]["queries"]
     return queries
+
 
 
 def search_db(state: SectionState, config: RunnableConfig):
@@ -562,35 +570,53 @@ def compile_final_report(state: ReportState):
     return {"final_report": all_sections}
 
 
-section_builder = StateGraph(SectionState, output=SectionOutputState)
-section_builder.add_node("generate_queries", generate_queries)
-section_builder.add_node("search_db", search_db)
-section_builder.add_node("write_section", write_section)
+class ReportGraphBuilder:
+    def __init__(self, checkpointer=None):
+        if checkpointer is None:
+            sqlite_conn = sqlite3.connect("checkpoints.sqlite", check_same_thread=False)
+            self.checkpointer = SqliteSaver(sqlite_conn)
+        else:
+            self.checkpointer = checkpointer
+        self._graph = None
 
-section_builder.add_edge(START, "generate_queries")
-section_builder.add_edge("generate_queries", "search_db")
-section_builder.add_edge("search_db", "write_section")
+    def get_graph(self):
+        if self._graph is None:
+            section_builder = StateGraph(SectionState, output=SectionOutputState)
+            section_builder.add_node("generate_queries", generate_queries)
+            section_builder.add_node("search_db", search_db)
+            section_builder.add_node("write_section", write_section)
 
-builder = StateGraph(ReportState, input=ReportStateInput, output=ReportStateOutput)
-builder.add_node("generate_report_plan", generate_report_plan)
-builder.add_node("human_feedback", human_feedback)
-builder.add_node("build_section_with_web_research", section_builder.compile())
-builder.add_node("gather_complete_section", gather_complete_section)
-builder.add_node("write_final_sections", write_final_sections)
-builder.add_node("compile_final_report", compile_final_report)
+            section_builder.add_edge(START, "generate_queries")
+            section_builder.add_edge("generate_queries", "search_db")
+            section_builder.add_edge("search_db", "write_section")
 
-builder.add_edge(START, "generate_report_plan")
-builder.add_edge("generate_report_plan", "human_feedback")
-builder.add_edge("build_section_with_web_research", "gather_complete_section")
-builder.add_conditional_edges(
-    "gather_complete_section",
-    initiate_final_section_writing,
-    ["write_final_sections"],
-)
-builder.add_edge("write_final_sections", "compile_final_report")
-builder.add_edge("compile_final_report", END)
-sqlite_conn = sqlite3.connect("checkpoints.sqlite", check_same_thread=False)
-saver = SqliteSaver(sqlite_conn)
+            builder = StateGraph(
+                ReportState, input=ReportStateInput, output=ReportStateOutput
+            )
+            builder.add_node("generate_report_plan", generate_report_plan)
+            builder.add_node("human_feedback", human_feedback)
+            builder.add_node(
+                "build_section_with_web_research", section_builder.compile()
+            )
+            builder.add_node("gather_complete_section", gather_complete_section)
+            builder.add_node("write_final_sections", write_final_sections)
+            builder.add_node("compile_final_report", compile_final_report)
+
+            builder.add_edge(START, "generate_report_plan")
+            builder.add_edge("generate_report_plan", "human_feedback")
+            builder.add_edge("build_section_with_web_research", "gather_complete_section")
+            builder.add_conditional_edges(
+                "gather_complete_section",
+                initiate_final_section_writing,
+                ["write_final_sections"],
+            )
+            builder.add_edge("write_final_sections", "compile_final_report")
+            builder.add_edge("compile_final_report", END)
+            self._graph = builder.compile(checkpointer=self.checkpointer)
+        return self._graph
+
+
 # MemorySaver()
-graph = builder.compile(checkpointer=saver)
+report_graph_builder = ReportGraphBuilder()
+graph = report_graph_builder.get_graph()
 # %%
