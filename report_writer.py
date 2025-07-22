@@ -51,7 +51,12 @@ from State.state import (
     SectionOutputState,
     SectionState,
 )
-from Tools.tools import feedback_formatter, queries_formatter, section_formatter
+from Tools.tools import (
+    feedback_formatter,
+    queries_formatter,
+    section_formatter,
+    quality_formatter,
+)
 from Utils.utils import (
     format_human_feedback,
     format_search_results_with_metadata,
@@ -169,16 +174,13 @@ def generate_report_plan(state: ReportState, config: RunnableConfig):
 
     # perform searching
     logger.info("===Start report planner query searching.===")
-
     source_str = ""
     if use_local_db:
         results = search_relevance_doc(query_list)
         source_str = format_search_results_with_metadata(results)
     if use_web:
         web_results = selenium_api_search(query_list, False)
-        source_str2 = web_search_deduplicate_and_format_sources(
-            web_results, 2000, False
-        )
+        source_str2 = web_search_deduplicate_and_format_sources(web_results, False)
         source_str = source_str + "===\n\n" + source_str2
     logger.info("===End report planner query searching.===")
 
@@ -260,6 +262,7 @@ def generate_queries(state: SectionState, config: RunnableConfig):
     system_instruction = query_writer_instructions.format(
         topic=section.description, number_of_queries=number_of_queries
     )
+
     logger.info(f"== Start generate topic:{section.name} queries==")
     kwargs = structure_llm.invoke(
         [SystemMessage(content=system_instruction)]
@@ -271,11 +274,55 @@ def generate_queries(state: SectionState, config: RunnableConfig):
     return queries_formatter.invoke(tool_calls)
 
 
+def check_search_quality(query: str, document: str) -> int:
+    llm = ChatLiteLLM(model=MODEL_NAME, temperature=0)
+    structure_llm = llm.bind_tools(tools=[quality_formatter], tool_choice="required")
+    
+    score = None
+    retry = 0
+    while retry < 5 and score is None:
+        system_instruction = results_filter_instruction.format(
+            query=query, document=document
+        )
+        results = structure_llm.invoke(
+            [SystemMessage(content=system_instruction)]
+            + [
+                HumanMessage(
+                    content="Generate the score of document on the provided query."
+                )
+            ]
+        )
+        score = results.tool_calls[0]["args"]["score"]
+        retry += 1
+    
+    return score
+
+
+def queries_rewriter(queries: List[str]) -> List[str]:
+    str_queries = ""
+    for idx, q in enumerate(queries):
+        str_queries += f"{idx}. {q}\n"
+
+    llm = ChatLiteLLM(model=MODEL_NAME, temperature=0)
+    structure_llm = llm.bind_tools(tools=[queries_formatter], tool_choice="required")
+    system_instruction = query_rewriter_instruction.format(
+        queries_to_refine=str_queries
+    )
+    results = structure_llm.invoke(
+        [SystemMessage(content=system_instruction)]
+        + [HumanMessage(content="Refine search queries on the provided queries.")]
+    )
+    queries = results.tool_calls[0]["args"]["queries"]
+    return queries
+
+
 def search_db(state: SectionState, config: RunnableConfig):
     query_list = state["search_queries"]
     configurable = config["configurable"]
     use_web = configurable.get("use_web", False)
     use_local_db = configurable.get("use_local_db", False)
+
+    # rewrite_query_list = queries_rewriter(query_list)
     if not use_web and not use_local_db:
         raise ValueError("Should use at least one searching tool")
 
@@ -287,15 +334,27 @@ def search_db(state: SectionState, config: RunnableConfig):
     if use_local_db:
         results = search_relevance_doc(query_list)
         source_str = format_search_results_with_metadata(results)
+
     if use_web:
         web_results = selenium_api_search(query_list, True)
-        source_str2 = web_search_deduplicate_and_format_sources(web_results, 5000, True)
+        filtered_web_results = []
+        for query, response in zip(query_list, web_results):
+            filtered_web_results.append({"results": []})
+            for result in response["results"]:
+                document = f"Title:{result['title']}\n\nContent:{result['content']}\n\nRaw Content:{result['raw_content']}"
+                score = check_search_quality(query, document)
+                if score > 2:
+                    filtered_web_results[-1]["results"].append(result)
+        source_str2 = web_search_deduplicate_and_format_sources(
+            filtered_web_results, True
+        )
         source_str = source_str + "===\n\n" + source_str2
     logger.info(f"== End searching topic:{state['section'].name}. ==")
 
     return {
         "source_str": source_str,
         "search_iterations": state["search_iterations"] + 1,
+        "queries_history": query_list,
     }
 
 
@@ -305,6 +364,11 @@ def write_section(
     # Get state
     section = state["section"]
     follow_up_queries = state.get("follow_up_queries", None)
+
+    queries_history = ""
+    for idx, q in enumerate(state["queries_history"]):
+        queries_history += f"{idx+1}. {q}\n"
+
     follow_up_questions = ""
     if follow_up_queries is not None:
         for idx, q in enumerate(follow_up_queries):
@@ -370,7 +434,9 @@ def write_section(
 
     # Grade prompt
     section_grader_instructions_formatted = section_grader_instructions.format(
-        section_topic=section.description, section=section.content
+        section_topic=section.description,
+        section=section.content,
+        queries_history=queries_history,
     )
 
     # Feedback
@@ -411,6 +477,7 @@ def write_section(
             tool=[feedback_formatter],
             tool_choice="required",
         )
+        feedback = feedback.tool_calls[0]["args"]
 
     if feedback["grade"] == "pass" or state["search_iterations"] >= max_search_depth:
         logger.info(f"Section:{section.name} pass model check or reach search depth.")
@@ -439,7 +506,6 @@ def gather_complete_section(state: ReportState):
 
 def initiate_final_section_writing(state: ReportState):
 
-    # Kick off section writing in parallel via Send() API for any sections that do not require research
     return [
         Send(
             "write_final_sections",
