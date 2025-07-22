@@ -210,7 +210,7 @@ def format_search_results_with_metadata(results: List[Document]):
     return formatted_text
 
 
-def tavily_search(search_queries, include_raw_content: True):
+def tavily_search(search_queries, include_raw_content: bool):
     search_docs = []
     for query in search_queries:
         search_docs.append(
@@ -227,7 +227,8 @@ def tavily_search(search_queries, include_raw_content: True):
 content_extractor = ContentExtractor()
 
 
-def selenium_api_search(search_queries, include_raw_content: True):
+def selenium_api_search(search_queries, include_raw_content: bool):
+    memo = set()
     search_docs = []
     for query in search_queries:
         output = requests.get(
@@ -235,7 +236,7 @@ def selenium_api_search(search_queries, include_raw_content: True):
             params={
                 "query": query,
                 "include_raw_content": include_raw_content,
-                "max_results": 5,
+                "max_results": 3,
                 "timeout": 40,
             },
         )
@@ -252,32 +253,30 @@ def selenium_api_search(search_queries, include_raw_content: True):
                         with open(file_path, "w") as f:
                             f.write(result["raw_content"])
                         large_files.append(file_path)
-
+                        result["raw_content"] = ""
                 except Exception as e:
                     logger.error(e)
-
-                finally:
-                    result["raw_content"] = ""
 
             if len(large_files) > 0:
                 content_extractor.update(large_files)
                 search_results = content_extractor.query(query)
-                for results in search_results:
-                    output["results"].append(
-                        {
-                            "url": results.metadata["path"],
-                            "title": results.metadata["path"],
-                            "content": "Raw content part has the most relevant information.",
-                            "raw_content": results.metadata["content"],
-                        }
-                    )
-
+                for idx, results in enumerate(search_results):
+                    if results.metadata["content"] not in memo:
+                        memo.add(results.metadata["content"])
+                        output["results"].append(
+                            {
+                                "url": f"{results.metadata['path']}_part{idx}",
+                                "title": results.metadata["path"],
+                                "content": "Raw content part has the most relevant information.",
+                                "raw_content": results.metadata["content"],
+                            }
+                        )
         search_docs.append(output)
     return search_docs
 
 
 def web_search_deduplicate_and_format_sources(
-    search_response, max_tokens_per_source, include_raw_content=True
+    search_response, include_raw_content=True
 ):
     # Collect all results
     sources_list = []
@@ -296,15 +295,14 @@ def web_search_deduplicate_and_format_sources(
             f"Most relevant content from source: {source['content']}\n===\n"
         )
         if include_raw_content:
-            # Using rough estimate of 4 characters per token
-            char_limit = max_tokens_per_source * 4
-            # Handle None raw_content
             raw_content = source.get("raw_content", "")
             if raw_content is None:
                 raw_content = ""
-                print(f"Warning: No raw_content found for source {source['url']}")
-            if len(raw_content) > char_limit:
-                raw_content = raw_content[:char_limit] + "... [truncated]"
-            formatted_text += f"Full source content limited to {max_tokens_per_source} tokens: {raw_content}\n\n"
-
+                logger.critical(
+                    f"Warning: No raw_content found for source {source['url']}"
+                )
+            formatted_text += f"{raw_content}\n\n"
     return formatted_text.strip()
+
+
+# %%
