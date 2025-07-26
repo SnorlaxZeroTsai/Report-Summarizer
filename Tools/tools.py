@@ -3,6 +3,29 @@ from typing import List, Literal
 
 
 @tool
+def searching_grader_formatter(
+    grade: Literal["pass", "fail"], follow_up_queries: List[str]
+):
+    """Summary
+    Take grade and follow up queries convert them into suitable format
+    Args:
+        grade (Literal[pass,fail]): Evaluation result indicating whether the context meets requirements ('pass') or needs revision ('fail').
+        follow_up_squeries (List[str]): List of follow-up search queries.
+    """
+    ...
+
+
+@tool
+def searching_budget_formatter(budget: int):
+    """Summary
+    Take the value of seraching budget of query list
+    Args:
+        budget (int): the value of seraching budget
+    """
+    return {"budget": budget}
+
+
+@tool
 def quality_formatter(score: int):
     """Summary
     Take the score of searching results of a query
@@ -10,6 +33,16 @@ def quality_formatter(score: int):
         score:int = the score of query document pair
     """
     return {"score": score}
+
+
+@tool
+def summary_formatter(summary_content: str):
+    """Summary
+    Take the summarized content of search results of a query
+    Args:
+        summary_content:str = the summarized content of raw document
+    """
+    return {"summary_content": summary_content}
 
 
 @tool
