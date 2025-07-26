@@ -26,13 +26,14 @@ Here is feedback on the report structure from review (if any):
 
 """
 
-report_planner_instructions = """I want a plan for a report. The more detailed and complete the information in this report, the better. 
+report_planner_instructions = """I want a plan for a report.
+The more detailed and complete the information in this report, the better. 
 The timing may be important for certain sections of this report. Please double-check carefully.
 
-<Task>
-Generate a list of sections for the report in Traditional Chinese.
 
-Each section should have the fields:
+<Task>
+**Generate a list of sections for the report in Traditional Chinese.**
+You should genrate a list of sections and each section should have the fields:
 
 - Name - Name for this section of the report (Traditional Chinese).
 - description - Write a detailed, neutral, and objective overview of the main topics and purpose of this section.
@@ -84,69 +85,6 @@ The queries should:
 </Topic>
 """
 
-query_rewriter_instruction = """You are an elite Search Query Engineer, a master at transforming basic user questions into powerful, precise queries that unlock deep, expert-level information from web and semantic search engines.
-
-<Mission>
-For each query in the `<Queries to Refine>` list, your mission is to engineer **one or two** superior, rewritten queries. These new queries must be strategically designed to expand the search aperture, increasing the probability of discovering novel and precise information.
-</Mission>
-
-<Guiding Principles>
-1.  **Preserve Core Intent:** All rewritten queries must stay true to the core subject of the original query. Avoid semantic drift.
-2.  **Strategic Diversification:** When generating two queries from one, they must be complementary, not redundant. For example, one can deepen the specificity while the other shifts the analytical angle.
-3.  **Action-Oriented Phrasing:** Frame queries to find *analysis*, *comparisons*, *data*, or *causal relationships*, not just simple definitions.
-</Guiding Principles>
-
-<Rephrasing Techniques>
-1.  **Deepen Specificity:** Transform broad queries into more targeted ones.
-    *   *Example*: Instead of "TSMC Q3 earnings," use "TSMC N3 process yield impact on Q3 2023 gross margin analysis."
-2.  **Uncover Causality & Impact:** Rephrase to investigate the 'why' or 'how'.
-    *   *Example*: Instead of "Nvidia H100 demand," use "key drivers for enterprise adoption of Nvidia H100 GPUs" or "impact of H100 supply constraints on cloud service provider capex."
-3.  **Shift Analytical Angle:** Frame the query from a different perspective, such as competitors, regulations, or the supply chain.
-4.  **Inject Expert Jargon:** Replace general terms with specific industry or technical jargon to access expert-level documents.
-</Rephrasing Techniques>
-
-<Execution Rules>
-1.  **Language Protocol:**
-    *   Adhere strictly to the language rule:
-    *   If the query's subject is primarily **related to Taiwan, use Traditional Chinese**.
-    *   If the query's subject is **related to Europe, America, the broader Asia-Pacific region, or is global in nature, use English**.
-2.  **Output Format:**
-    *   The output must be only the rewritten, optimized queries in a flat list.
-    *   For each original query, you can generate **up to 2** new queries.
-    *   If an original query is already very specific and high-quality, you may return just one rewritten query or even the original query itself.
-3.  **Negative Constraint:**
-    *   **Do not** simply add synonyms or reorder words. The goal is semantic evolution, not trivial rephrasing.
-</Execution Rules>
-
-<Queries to Refine>
-{queries_to_refine}
-</Queries to Refine>
-
-"""
-
-results_filter_instruction = """You are an expert "Search Quality Rater."  Based on the provided data, please perform your evaluation and return your score and reasoning in JSON format.
-
-<Task>
-Your task is to evaluate how well the content of a "Document" satisfies the user's intent behind their "Query."
-</Task>
-
-<Guideline>
-Please follow the scoring criteria below:
-- 5 Very Relevant: The document directly and comprehensively answers the query. This is exactly the kind of result the user wants to see.
-- 4 Relevant: The document provides most of the information related to the query's topic but might not be fully comprehensive.
-- 3 Moderately Relevant: The document touches upon some aspects of the query but it is not the main focus.
-- 2 Slightly Relevant: The document merely mentions keywords from the query, but the content has a low correlation with the user's intent.
-- 1 Irrelevant: The document does not answer the user's query at all.
-</Guideline>
-
-<Query>
-{query}
-</Query>
-
-<Document>
-{document}
-</Document>
-"""
 
 section_writer_instructions = """You are an expert in technical, financial, and investment writing.
 You are now working at one of the world's largest industry research and consulting firms.
