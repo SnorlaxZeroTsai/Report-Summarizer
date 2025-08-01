@@ -12,6 +12,7 @@ from langchain.schema import Document
 from langchain_community.vectorstores import Chroma
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
+from langchain_community.chat_models import ChatLiteLLM
 from tavily import TavilyClient
 
 from State.state import Section
@@ -34,6 +35,52 @@ logger.addHandler(console_handler)
 
 
 # %%
+def call_llm(
+    model_name: str, backup_model_name: str, prompt: List, tool=None, tool_choice=None
+):
+    try:
+        temperature = 0
+        if model_name == "o3-mini" or model_name == "o4-mini":
+            temperature = 1
+        model = ChatLiteLLM(model=model_name, temperature=temperature)
+        if tool:
+            model = model.bind_tools(tools=tool, tool_choice=tool_choice)
+        response = model.invoke(prompt)
+    except Exception as e:
+        logger.error(e)
+        temperature = 0
+        if model_name == "o3-mini" or model_name == "o4-mini":
+            temperature = 1
+        model = ChatLiteLLM(model=backup_model_name, temperature=temperature)
+        if tool:
+            model = model.bind_tools(tools=tool, tool_choice=tool_choice)
+        response = model.invoke(prompt)
+    return response
+
+
+async def call_llm_async(
+    model_name: str, backup_model_name: str, prompt: List, tool=None, tool_choice=None
+):
+    try:
+        temperature = 0
+        if model_name == "o3-mini" or model_name == "o4-mini":
+            temperature = 1
+        model = ChatLiteLLM(model=model_name, temperature=temperature)
+        if tool:
+            model = model.bind_tools(tools=tool, tool_choice=tool_choice)
+        response = await model.ainvoke(prompt)
+    except Exception as e:
+        logger.error(e)
+        temperature = 0
+        if model_name == "o3-mini" or model_name == "o4-mini":
+            temperature = 1
+        model = ChatLiteLLM(model=backup_model_name, temperature=temperature)
+        if tool:
+            model = model.bind_tools(tools=tool, tool_choice=tool_choice)
+        response = await model.ainvoke(prompt)
+    return response
+
+
 def track_expanded_context(
     original_context: str,
     critical_context: str,
@@ -88,8 +135,8 @@ class ContentExtractor(object):
 
     def update_new_docs(self, files):
         text_splitter = RecursiveCharacterTextSplitter(
-            chunk_size=5000,
-            chunk_overlap=250,
+            chunk_size=300,
+            chunk_overlap=50,
             separators=["\n\n\n\n", "\n\n\n", "\n\n", "\n", ""],
         )
         new_docs = []
@@ -124,7 +171,7 @@ class ContentExtractor(object):
                 continue
             seen.add(res.page_content)
             expanded_content = track_expanded_context(
-                res.metadata["content"], res.page_content, 2500, 1250
+                res.metadata["content"], res.page_content, 1500, 500
             )
             return_res = deepcopy(res)
             return_res.metadata["content"] = expanded_content
@@ -284,7 +331,11 @@ def web_search_deduplicate_and_format_sources(
         sources_list.extend(response["results"])
 
     # Deduplicate by URL
-    unique_sources = {source["url"]: source for source in sources_list}
+    sources_list = sorted(sources_list, key=lambda x: x.get("score", 1), reverse=True)
+    unique_sources = {}
+    for source in sources_list:
+        if source["url"] not in unique_sources:
+            unique_sources[source["url"]] = source
 
     # Format output
     formatted_text = "Sources:\n\n"

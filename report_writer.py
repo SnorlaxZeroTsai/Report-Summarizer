@@ -10,6 +10,9 @@ import omegaconf
 config = omegaconf.OmegaConf.load("report_config.yaml")
 PROMPT_STYLE = config["PROMPT_STYLE"]
 
+PLANNER_MODEL_NAME = config["PLANNER_MODEL_NAME"]
+BACKUP_PLANNER_MODEL_NAME = config["BACKUP_PLANNER_MODEL_NAME"]
+
 VERIFY_MODEL_NAME = config["VERIFY_MODEL_NAME"]
 BACKUP_VERIFY_MODEL_NAME = config["BACKUP_VERIFY_MODEL_NAME"]
 
@@ -42,6 +45,7 @@ else:
     raise ValueError("Only support indutry and technical_research prompt template")
 from copy import deepcopy
 
+from agentic_search import agentic_search_graph
 from retriever import hybrid_retriever
 from State.state import (
     ReportState,
@@ -55,17 +59,16 @@ from Tools.tools import (
     feedback_formatter,
     queries_formatter,
     section_formatter,
-    quality_formatter,
 )
 from Utils.utils import (
+    call_llm,
     format_human_feedback,
     format_search_results_with_metadata,
     format_sections,
     selenium_api_search,
-    web_search_deduplicate_and_format_sources,
     track_expanded_context,
+    web_search_deduplicate_and_format_sources,
 )
-from typing import List
 
 logger = logging.getLogger("AgentLogger")
 logger.setLevel(logging.DEBUG)
@@ -80,23 +83,6 @@ logger.addHandler(console_handler)
 logger.info(
     f'VERIFY_MODEL_NAME : {config["VERIFY_MODEL_NAME"]}, MODEL_NAME : {config["MODEL_NAME"]}, CONCLUDE_MODEL_NAME : {config["CONCLUDE_MODEL_NAME"]}'
 )
-
-
-def call_llm(
-    model_name: str, backup_model_name: str, prompt: List, tool=None, tool_choice=None
-):
-    try:
-        model = ChatLiteLLM(model=model_name, temperature=0)
-        if tool:
-            model = model.bind_tools(tools=tool, tool_choice=tool_choice)
-        response = model.invoke(prompt)
-    except Exception as e:
-        logger.error(e)
-        model = ChatLiteLLM(model=backup_model_name, temperature=0)
-        if tool:
-            model = model.bind_tools(tools=tool, tool_choice=tool_choice)
-        response = model.invoke(prompt)
-    return response
 
 
 def search_relevance_doc(queries):
@@ -139,10 +125,6 @@ def generate_report_plan(state: ReportState, config: RunnableConfig):
     use_local_db = configurable.get("use_local_db", False)
     if not use_web and not use_local_db:
         raise ValueError("Should use at least one searching tool")
-
-    logger.info(
-        f"topic:{topic}, number_of_queries:{number_of_queries}, use_web:{use_web}"
-    )
 
     # Convert JSON object to string if necessary
     if isinstance(report_structure, dict):
@@ -194,8 +176,8 @@ def generate_report_plan(state: ReportState, config: RunnableConfig):
     )
     # Generate sections
     report_sections = call_llm(
-        VERIFY_MODEL_NAME,
-        BACKUP_VERIFY_MODEL_NAME,
+        PLANNER_MODEL_NAME,
+        BACKUP_PLANNER_MODEL_NAME,
         prompt=[SystemMessage(content=system_instructions_sections)]
         + [
             HumanMessage(
@@ -275,62 +257,12 @@ def generate_queries(state: SectionState, config: RunnableConfig):
     return queries_formatter.invoke(tool_calls)
 
 
-def check_search_quality(query: str, document: str) -> int:
-    score = None
-    retry = 0
-    while retry < 5 and score is None:
-        system_instruction = results_filter_instruction.format(
-            query=query, document=document
-        )
-        results = call_llm(
-            MODEL_NAME,
-            BACKUP_MODEL_NAME,
-            prompt=[SystemMessage(content=system_instruction)]
-            + [
-                HumanMessage(
-                    content="Generate the score of document on the provided query."
-                )
-            ],
-            tool=[quality_formatter],
-            tool_choice="required",
-        )
-        try:
-            score = results.tool_calls[0]["args"]["score"]
-        except (IndexError, KeyError):
-            logger.warning(f"Failed to get score from tool call for query: {query}")
-        retry += 1
-
-    return score
-
-
-def queries_rewriter(queries: List[str]) -> List[str]:
-    str_queries = ""
-    for idx, q in enumerate(queries):
-        str_queries += f"{idx}. {q}\n"
-
-    system_instruction = query_rewriter_instruction.format(
-        queries_to_refine=str_queries
-    )
-    results = call_llm(
-        MODEL_NAME,
-        BACKUP_MODEL_NAME,
-        prompt=[SystemMessage(content=system_instruction)]
-        + [HumanMessage(content="Refine search queries on the provided queries.")],
-        tool=[queries_formatter],
-        tool_choice="required",
-    )
-    queries = results.tool_calls[0]["args"]["queries"]
-    return queries
-
-
-
 def search_db(state: SectionState, config: RunnableConfig):
     query_list = state["search_queries"]
     configurable = config["configurable"]
     use_web = configurable.get("use_web", False)
     use_local_db = configurable.get("use_local_db", False)
 
-    # rewrite_query_list = queries_rewriter(query_list)
     if not use_web and not use_local_db:
         raise ValueError("Should use at least one searching tool")
 
@@ -344,18 +276,8 @@ def search_db(state: SectionState, config: RunnableConfig):
         source_str = format_search_results_with_metadata(results)
 
     if use_web:
-        web_results = selenium_api_search(query_list, True)
-        filtered_web_results = []
-        for query, response in zip(query_list, web_results):
-            filtered_web_results.append({"results": []})
-            for result in response["results"]:
-                document = f"Title:{result['title']}\n\nContent:{result['content']}\n\nRaw Content:{result['raw_content']}"
-                score = check_search_quality(query, document)
-                if score > 2:
-                    filtered_web_results[-1]["results"].append(result)
-        source_str2 = web_search_deduplicate_and_format_sources(
-            filtered_web_results, True
-        )
+        search_results = agentic_search_graph.invoke({"queries": query_list})
+        source_str2 = search_results["source_str"]
         source_str = source_str + "===\n\n" + source_str2
     logger.info(f"== End searching topic:{state['section'].name}. ==")
 
@@ -604,7 +526,9 @@ class ReportGraphBuilder:
 
             builder.add_edge(START, "generate_report_plan")
             builder.add_edge("generate_report_plan", "human_feedback")
-            builder.add_edge("build_section_with_web_research", "gather_complete_section")
+            builder.add_edge(
+                "build_section_with_web_research", "gather_complete_section"
+            )
             builder.add_conditional_edges(
                 "gather_complete_section",
                 initiate_final_section_writing,
@@ -616,7 +540,6 @@ class ReportGraphBuilder:
         return self._graph
 
 
-# MemorySaver()
 report_graph_builder = ReportGraphBuilder()
 graph = report_graph_builder.get_graph()
 # %%
