@@ -83,3 +83,17 @@ def section_formatter(name: str, description: str, research: bool, content: str)
         "research": research,
         "content": content,
     }
+
+
+@tool
+def refine_section_formatter(refined_description: str, refined_content: str):
+    """Summary
+    Take refined_description and refined_content and convert them into RefinedSection object
+    Args:
+        refined_description (str): The refined and enhanced description of the section.
+        refined_content (str): The rewritten and improved content of the section.
+    """
+    return {
+        "refined_description": refined_description,
+        "refined_content": refined_content,
+    }

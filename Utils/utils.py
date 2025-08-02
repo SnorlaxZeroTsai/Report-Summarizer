@@ -35,6 +35,18 @@ logger.addHandler(console_handler)
 
 
 # %%
+def clearable_list_reducer(
+    left: list | None, right: list | str | None
+) -> list:
+    if right == "__CLEAR__":
+        return []
+    if left is None:
+        left = []
+    if right is None:
+        right = []
+    return left + right
+
+
 def call_llm(
     model_name: str, backup_model_name: str, prompt: List, tool=None, tool_choice=None
 ):

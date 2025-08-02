@@ -283,3 +283,66 @@ For Conclusion/Summary:
 {context}
 </Available report content>
 """
+
+refine_section_instructions = """You are an expert report editor. Your task is to refine a specific section of a report using the full context of all other sections.
+You will be given the section to refine, and the full text of the rest of the report.
+
+<Task>
+Your goal is to improve a specific section of a report by leveraging the context of the entire document. You will refine the section's description and rewrite its content for better coherence and detail.
+
+**Instructions:**
+1.  **Analyze the context:** Carefully read the full report context to understand the overall narrative, flow, and key points.
+2.  **Refine the Description:**
+    -   Read the original description of the target section.
+    -   **Do not remove the original description.**
+    -   Enhance the original description by adding more detail, nuance, and connections to other sections based on the full context. Make it more comprehensive and informative.
+3.  **Rewrite the Content:**
+    -   Rewrite the section's content to be more detailed, coherent, and well-structured.
+    -   Ensure the rewritten content aligns perfectly with the refined description and the overall report.
+    -   Correct any inaccuracies or inconsistencies.
+    -   The tone and style should be professional and consistent with the rest of the report.
+4.  **Output:** You must return a single JSON object with two keys: "description" and "content".
+</Task>
+
+<Target Section to Refine>
+- **Name:** {section_name}
+- **Original Description:** {section_description}
+- **Original Content:** {section_content}
+</Target Section to Refine>
+
+<Full Report Context>
+{full_context}
+</Full Report Context>
+"""
+
+refine_section_instructions = """You are an expert report editor. Your task is to refine a specific section of a report using the full context of all other sections.
+You will be given the section to refine, and the full text of the rest of the report.
+
+<Task>
+Your goal is to improve a specific section of a report by leveraging the context of the entire document. You will refine the section's description and rewrite its content for better coherence and detail.
+
+**Instructions:**
+1.  **Analyze the context:** Carefully read the full report context to understand the overall narrative, flow, and key points.
+2.  **Refine the Description:**
+    -   Read the original description of the target section.
+    -   **Do not change the original meaning of the description.**
+    -   Enhance the original description by adding more detail, nuance, and connections to other sections based on the full context. Make it more comprehensive and informative.
+3.  **Rewrite the Content:**
+    -   Rewrite the section's content to be more detailed, coherent, and well-structured.
+    -   Ensure the rewritten content aligns perfectly with the refined description and the overall report.
+    -   Correct any inaccuracies or inconsistencies.
+    -   The tone and style should be professional and consistent with the rest of the report.
+4.  **Output:** You must return a single JSON object with two keys: "refined_description" and "refined_content".
+</Task>
+
+<Target Section to Refine>
+- **Name:** {section_name}
+- **Original Description:** {section_description}
+- **Original Content:** {section_content}
+</Target Section to Refine>
+
+<Full Report Context>
+{full_context}
+</Full Report Context>
+"""
+"""

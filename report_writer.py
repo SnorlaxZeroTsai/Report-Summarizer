@@ -48,6 +48,7 @@ from copy import deepcopy
 from agentic_search import agentic_search_graph
 from retriever import hybrid_retriever
 from State.state import (
+    RefinedSection,
     ReportState,
     ReportStateInput,
     ReportStateOutput,
@@ -58,10 +59,12 @@ from State.state import (
 from Tools.tools import (
     feedback_formatter,
     queries_formatter,
+    refine_section_formatter,
     section_formatter,
 )
 from Utils.utils import (
     call_llm,
+    clearable_list_reducer,
     format_human_feedback,
     format_search_results_with_metadata,
     format_sections,
@@ -83,6 +86,16 @@ logger.addHandler(console_handler)
 logger.info(
     f'VERIFY_MODEL_NAME : {config["VERIFY_MODEL_NAME"]}, MODEL_NAME : {config["MODEL_NAME"]}, CONCLUDE_MODEL_NAME : {config["CONCLUDE_MODEL_NAME"]}'
 )
+
+
+def clearable_list_reducer(left: list | None, right: list | str | None) -> list:
+    if right == "__CLEAR__":
+        return []
+    if left is None:
+        left = []
+    if right is None:
+        right = []
+    return left + right
 
 
 def search_relevance_doc(queries):
@@ -191,7 +204,7 @@ def generate_report_plan(state: ReportState, config: RunnableConfig):
         Section(**tool_call["args"]) for tool_call in report_sections.tool_calls
     ]
     logger.info("===End report plan generation.===")
-    return {"sections": sections}
+    return {"sections": sections, "curr_refine_iteration": 0}
 
 
 def human_feedback(
@@ -254,7 +267,10 @@ def generate_queries(state: SectionState, config: RunnableConfig):
     logger.info(f"== End generate topic:{section.name} queries==")
 
     tool_calls = kwargs.tool_calls[0]["args"]
-    return queries_formatter.invoke(tool_calls)
+    return {
+        "search_queries": tool_calls["queries"],
+        "follow_up_queries": [],
+    }  # queries_formatter.invoke(tool_calls)
 
 
 def search_db(state: SectionState, config: RunnableConfig):
@@ -434,6 +450,52 @@ def gather_complete_section(state: ReportState):
     return {"report_sections_from_research": completed_report_sections}
 
 
+def refine_sections(state: ReportState, config: RunnableConfig):
+    logger.info("===Refining sections===")
+    sections = state["sections"]
+    refined_sections = []
+
+    for section in sections:
+        if not section.research:
+            refined_sections.append(section)
+            continue
+
+        full_context = format_sections(sections)
+        system_instructions = refine_section_instructions.format(
+            section_name=section.name,
+            section_description=section.description,
+            section_content=section.content,
+            full_context=full_context,
+        )
+
+        refined_output = call_llm(
+            WRITER_MODEL_NAME,
+            BACKUP_WRITER_MODEL_NAME,
+            [SystemMessage(content=system_instructions)]
+            + [
+                HumanMessage(
+                    content="Refine the section based on the full report context."
+                )
+            ],
+            tool=[refine_section_formatter],
+            tool_choice="required",
+        )
+        refined_section_data = refined_output.tool_calls[0]["args"]
+        section.description = refined_section_data["refined_description"]
+        section.content = refined_section_data["refined_content"]
+        refined_sections.append(section)
+
+    return {"sections": refined_sections}
+
+
+def should_refine(state: ReportState):
+    logger.info("===Checking if sections should be refined===")
+    if state["curr_refine_iteration"] < state["refine_iteration"]:
+        return "refine_sections"
+    else:
+        return "gather_complete_section"
+
+
 def initiate_final_section_writing(state: ReportState):
 
     return [
@@ -520,15 +582,23 @@ class ReportGraphBuilder:
             builder.add_node(
                 "build_section_with_web_research", section_builder.compile()
             )
+            builder.add_node("refine_sections", refine_sections)
             builder.add_node("gather_complete_section", gather_complete_section)
             builder.add_node("write_final_sections", write_final_sections)
             builder.add_node("compile_final_report", compile_final_report)
 
             builder.add_edge(START, "generate_report_plan")
             builder.add_edge("generate_report_plan", "human_feedback")
-            builder.add_edge(
-                "build_section_with_web_research", "gather_complete_section"
+            builder.add_edge("build_section_with_web_research", "should_refine")
+            builder.add_conditional_edges(
+                "should_refine",
+                should_refine,
+                {
+                    "refine_sections": "refine_sections",
+                    "gather_complete_section": "gather_complete_section",
+                },
             )
+            builder.add_edge("refine_sections", "build_section_with_web_research")
             builder.add_conditional_edges(
                 "gather_complete_section",
                 initiate_final_section_writing,
@@ -542,4 +612,3 @@ class ReportGraphBuilder:
 
 report_graph_builder = ReportGraphBuilder()
 graph = report_graph_builder.get_graph()
-# %%
