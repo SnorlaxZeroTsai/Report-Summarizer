@@ -86,14 +86,18 @@ def section_formatter(name: str, description: str, research: bool, content: str)
 
 
 @tool
-def refine_section_formatter(refined_description: str, refined_content: str):
+def refine_section_formatter(
+    refined_description: str, refined_content: str, new_queries: List[str]
+):
     """Summary
-    Take refined_description and refined_content and convert them into RefinedSection object
+    Take refined_description ,refined_content, new_queries and convert them into suitable format
     Args:
         refined_description (str): The refined and enhanced description of the section.
         refined_content (str): The rewritten and improved content of the section.
+        new_queries(List[str]): The new queries to next searching iteration.
     """
     return {
         "refined_description": refined_description,
         "refined_content": refined_content,
+        "new_queries": new_queries,
     }
