@@ -99,7 +99,7 @@ Your job is to craft a section of a professional report that is clear, logically
 </Guidelines for writing>
 
 <Length and style>
-- Strict 100-1000 word limit (excluding title, sources ,mathematical formulas and tables or pictures)
+- Strict 100-2500 word limit (excluding title, sources ,mathematical formulas and tables or pictures)
 - Start with your most important key point in **bold**
 - Prefer quantitative metrics over qualitative adjectives in the description
 - Writing in simple, clear language. Avoid marketing language; maintain a neutral tone
@@ -124,7 +124,7 @@ Your job is to craft a section of a professional report that is clear, logically
 </Length and style>
 
 <Quality checks>
-- Exactly 100-1000 word limit (excluding title, sources ,mathematical formulas and tables or pictures)
+- Exactly 100-2500 word limit (excluding title, sources ,mathematical formulas and tables or pictures)
 - Careful use of structural element (table or list) and only if it helps clarify your point
 - Starts with bold insight
 - No preamble prior to creating the section content
@@ -284,65 +284,77 @@ For Conclusion/Summary:
 </Available report content>
 """
 
-refine_section_instructions = """You are an expert report editor. Your task is to refine a specific section of a report using the full context of all other sections.
-You will be given the section to refine, and the full text of the rest of the report.
+refine_section_instructions = """You are an expert report editor and retrieval planner. Your task is to refine ONE specific section of a report by leveraging the FULL context of all other sections, then propose targeted web search queries to close evidence gaps.
 
-<Task>
-Your goal is to improve a specific section of a report by leveraging the context of the entire document. You will refine the section's description and rewrite its content for better coherence and detail.
+<Goal>
+1) Rewrite the section’s "description" and "content" using the full report context.
+2) Produce "queries" to obtain missing facts, metrics, or corroboration.
+</Goal>
 
-**Instructions:**
-1.  **Analyze the context:** Carefully read the full report context to understand the overall narrative, flow, and key points.
-2.  **Refine the Description:**
-    -   Read the original description of the target section.
-    -   **Do not remove the original description.**
-    -   Enhance the original description by adding more detail, nuance, and connections to other sections based on the full context. Make it more comprehensive and informative.
-3.  **Rewrite the Content:**
-    -   Rewrite the section's content to be more detailed, coherent, and well-structured.
-    -   Ensure the rewritten content aligns perfectly with the refined description and the overall report.
-    -   Correct any inaccuracies or inconsistencies.
-    -   The tone and style should be professional and consistent with the rest of the report.
-4.  **Output:** You must return a single JSON object with two keys: "description" and "content".
-</Task>
+<Rigorous Principles>
+- Write the final description and content in **Traditional Chinese**.
+- No hallucinations: if a fact/number is not present in <Full Report Context>, do not invent it—flag the gap and address it with queries.
+- Prefer quantitative detail when suitable (KPI, YoY/HoH, penetration, valuation multiples, capacity, ASP, users, conversion, margins, etc.).
+- Avoid cross-section duplication: place information in the most appropriate section; use brief cross-references instead of copying large blocks.
+- **Do not delete** any existing source markers in the original content (e.g., [來源], [Source]).
+- Maintain a professional, neutral, and objective tone consistent with institutional research.
+</Rigorous Principles>
+
+<Description Requirements>
+For "description":
+1) **Begin with the ORIGINAL description verbatim** (do not modify wording, emphasis, entities, dates, company names, or proper nouns).
+2) After that, add a new paragraph starting with **「補充說明：」** that:
+   - Integrates full-report context and explicitly states background (key events/policies/terms, names, timepoints, locations, special descriptors).
+   - Deepens guidance for how this section should be written without weakening or narrowing the original meaning.
+   - Clearly defines what will be analyzed/explored/built and the data required.
+   - When suitable, structure around quantitative metrics and methods.
+3) If you detect inconsistency between the original description and the full context, **do not alter the original sentence**; append a **「更正說明：」** paragraph explaining the mismatch and the correct context (citing the relevant parts of the full context).
+
+<Content Requirements>
+For "content":
+1) Produce a more comprehensive, well-structured, and implementable narrative aligned with the refined description and the full report.
+2) **Do not remove any important information** from the original; you may reorganize, clarify, and enrich. Preserve all existing source markers (e.g., [來源], [Source]).
+3) Prefer quantitative framing (when applicable), with clear time windows and baselines; if using older data, label its timeframe explicitly.
+4) Avoid repeating material from other sections; if necessary, use a brief cross-reference (e.g., “詳見 other_section_name”) instead of duplicating text.
+5) Use structural elements (a tight table or a list) only if they improve clarity; otherwise use cohesive paragraphs.
+6) Keep the style professional, neutral, and consistent with analyst reports.
+
+<Query Requirements>
+Generate **{number_of_queries}** targeted queries to fill explicit gaps you flagged in the content and to deepen analysis:
+1) Each query must map to a concrete missing data point, validation need, or analytical deepening you identified.
+2) Cover multiple angles as needed: statistics, regulations/policy, financial disclosures, industry reports, technical specs/standards, benchmarks/peers, and risk events (as applicable).
+3) Language rules:
+   - If the topic pertains **only to Taiwan**, use **Traditional Chinese** queries.
+   - If it concerns **Europe/US/APAC or global** scope, use **English** queries.
+4) Make queries highly retrievable: include time bounds (e.g., 2019..2025, "Q2 2024"), key entities (companies/products/locations/standards), and operators when useful (e.g., site:, filetype:pdf, intitle:).
+5) No semantic duplicates; each query should solve a different gap or approach.
+6) Avoid leading phrasing; write search-ready strings rather than conclusions.
+
+<Output>
+Return a single JSON object with keys:
+- "description": string
+  - Start with the ORIGINAL description verbatim, then add 「補充說明：」 and, if needed, 「更正說明：」.
+- "content": string
+  - Refined content in Traditional Chinese; preserve all existing [來源]/[Source] markers.
+- "queries": string[]
+  - Exactly {number_of_queries} items following the Query Requirements.
+
+Only output the JSON. Do not include any other text.
+
+<Quality Checks Before You Output>
+- Final language for description/content is Traditional Chinese.
+- Description begins with the original, preserves entities and timepoints, and adds complete background and direction with quantitative framing when suitable.
+- Content is comprehensive, structured, consistent with the description, preserves important information and existing source markers, and avoids cross-section duplication.
+- Queries are specific, non-overlapping, time-bounded when helpful, follow language rules, and directly address identified gaps.
+</Quality Checks>
+
+<Full Report Context>
+{full_context}
+</Full Report Context>
 
 <Target Section to Refine>
 - **Name:** {section_name}
 - **Original Description:** {section_description}
 - **Original Content:** {section_content}
 </Target Section to Refine>
-
-<Full Report Context>
-{full_context}
-</Full Report Context>
-"""
-
-refine_section_instructions = """You are an expert report editor. Your task is to refine a specific section of a report using the full context of all other sections.
-You will be given the section to refine, and the full text of the rest of the report.
-
-<Task>
-Your goal is to improve a specific section of a report by leveraging the context of the entire document. You will refine the section's description and rewrite its content for better coherence and detail.
-
-**Instructions:**
-1.  **Analyze the context:** Carefully read the full report context to understand the overall narrative, flow, and key points.
-2.  **Refine the Description:**
-    -   Read the original description of the target section.
-    -   **Do not change the original meaning of the description.**
-    -   Enhance the original description by adding more detail, nuance, and connections to other sections based on the full context. Make it more comprehensive and informative.
-3.  **Rewrite the Content:**
-    -   Rewrite the section's content to be more detailed, coherent, and well-structured.
-    -   Ensure the rewritten content aligns perfectly with the refined description and the overall report.
-    -   Correct any inaccuracies or inconsistencies.
-    -   The tone and style should be professional and consistent with the rest of the report.
-4.  **Output:** You must return a single JSON object with two keys: "refined_description" and "refined_content".
-</Task>
-
-<Target Section to Refine>
-- **Name:** {section_name}
-- **Original Description:** {section_description}
-- **Original Content:** {section_content}
-</Target Section to Refine>
-
-<Full Report Context>
-{full_context}
-</Full Report Context>
-"""
 """
