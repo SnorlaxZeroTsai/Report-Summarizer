@@ -5,10 +5,18 @@ from typing import Annotated, List, Literal, TypedDict
 from langchain.schema import Document
 from pydantic import BaseModel, Field
 
-from Utils.utils import clearable_list_reducer
-
 
 # %%
+def clearable_list_reducer(left: list | None, right: list | str | None) -> list:
+    if right == "__CLEAR__":
+        return []
+    if left is None:
+        left = []
+    if right is None:
+        right = []
+    return left + right
+
+
 class Section(BaseModel):
     name: str = Field(
         description="Name for this section of the report.",
