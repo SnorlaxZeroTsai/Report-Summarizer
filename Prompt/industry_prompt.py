@@ -286,10 +286,10 @@ For Conclusion/Summary:
 
 refine_section_instructions = """You are an expert report editor and retrieval planner. Your task is to refine ONE specific section of a report by leveraging the FULL context of all other sections, then propose targeted web search queries to close evidence gaps.
 
-<Goal>
+<Task>
 1) Rewrite the section’s "description" and "content" using the full report context.
 2) Produce "queries" to obtain missing facts, metrics, or corroboration.
-</Goal>
+</Task>
 
 <Rigorous Principles>
 - Write the final description and content in **Traditional Chinese**.
@@ -302,22 +302,37 @@ refine_section_instructions = """You are an expert report editor and retrieval p
 
 <Description Requirements>
 For "description":
-1) **Begin with the ORIGINAL description verbatim** (do not modify wording, emphasis, entities, dates, company names, or proper nouns).
-2) After that, add a new paragraph starting with **「補充說明：」** that:
+1) **Do not repeat the original description in your output.**
+2) Based on the full report context, identify what is missing or needs correction in the original description. **Output only the text for these additions or corrections.** I will append this to the original description. Your additions should aim to:
    - Integrates full-report context and explicitly states background (key events/policies/terms, names, timepoints, locations, special descriptors).
+   - Based on the full text, provide a more comprehensive and complete description of the section, guiding the section to obtain more complete and in-depth content in the subsequent research.
    - Deepens guidance for how this section should be written without weakening or narrowing the original meaning.
    - Clearly defines what will be analyzed/explored/built and the data required.
    - When suitable, structure around quantitative metrics and methods.
-3) If you detect inconsistency between the original description and the full context, **do not alter the original sentence**; append a **「更正說明：」** paragraph explaining the mismatch and the correct context (citing the relevant parts of the full context).
+3) Avoid repeating information already in the section's description. Add only new descriptions to ensure completeness. If no new descriptions are needed, return an empty string in `refined_description`.
+4) If you detect inconsistency between the original description and the full context, start your output with a **"Correction Note:"** paragraph explaining the mismatch and the correct context (citing the relevant parts of the full context).
+</Description Requirements>
+
 
 <Content Requirements>
 For "content":
-1) Produce a more comprehensive, well-structured, and implementable narrative aligned with the refined description and the full report.
-2) **Do not remove any important information** from the original; you may reorganize, clarify, and enrich. Preserve all existing source markers (e.g., [來源], [Source]).
-3) Prefer quantitative framing (when applicable), with clear time windows and baselines; if using older data, label its timeframe explicitly.
-4) Avoid repeating material from other sections; if necessary, use a brief cross-reference (e.g., “詳見 other_section_name”) instead of duplicating text.
-5) Use structural elements (a tight table or a list) only if they improve clarity; otherwise use cohesive paragraphs.
-6) Keep the style professional, neutral, and consistent with analyst reports.
+1) **Core Task**: Produce a more comprehensive, well-structured, and implementable narrative aligned with the refined description and the full report. **Do not remove any important information** from the original; you may reorganize, clarify, and enrich. Preserve all existing source markers (e.g., `[來源]`, `[Source]`).
+2) **Cross-Section Consistency**: Avoid repeating material from other sections; if necessary, use a brief cross-reference (e.g., “詳見 other_section_name”) instead of duplicating text.
+3) **Style and Formatting**:
+    - **Word Count**: 100-2500 word limit (excluding title, sources, mathematical formulas, tables, or pictures).
+    - **Opening**: Start with your most important key point in **bold**.
+    - **Tone & Focus**: Maintain a neutral, technical, and time-aware tone consistent with institutional analyst reports. Prefer quantitative metrics over qualitative adjectives. Avoid marketing language.
+    - **Title**: Use `##` only once for the section title (Markdown format).
+    - **Structural Elements**: Only use a structural element IF it helps clarify your point:
+      * Either a focused table (using Markdown table syntax) for comparing key items, financial information, or quantitative data.
+      * Or a list using proper Markdown list syntax (`*`, `-`, `1.`).
+    - **Inline Citations**: For any key data, statistics, or direct claims, provide an inline citation immediately after the statement (e.g., `[Source Title]`). If a statement synthesizes information from multiple sources, cite all of them (e.g., `[Source Title 1][Source Title 2]`).
+    - **Sources Section**: End with `### Sources` that references the source material, formatted as:
+      * List each source with title, date, and URL.
+      * Format: `- Title `
+    - **Language**: Use **Traditional Chinese** to write the report.
+</Content Requirements>
+
 
 <Query Requirements>
 Generate **{number_of_queries}** targeted queries to fill explicit gaps you flagged in the content and to deepen analysis:
@@ -329,23 +344,26 @@ Generate **{number_of_queries}** targeted queries to fill explicit gaps you flag
 4) Make queries highly retrievable: include time bounds (e.g., 2019..2025, "Q2 2024"), key entities (companies/products/locations/standards), and operators when useful (e.g., site:, filetype:pdf, intitle:).
 5) No semantic duplicates; each query should solve a different gap or approach.
 6) Avoid leading phrasing; write search-ready strings rather than conclusions.
+</Query Requirements>
 
-<Output>
-Return a single JSON object with keys:
-- "description": string
-  - Start with the ORIGINAL description verbatim, then add 「補充說明：」 and, if needed, 「更正說明：」.
-- "content": string
-  - Refined content in Traditional Chinese; preserve all existing [來源]/[Source] markers.
-- "queries": string[]
-  - Exactly {number_of_queries} items following the Query Requirements.
 
-Only output the JSON. Do not include any other text.
-
-<Quality Checks Before You Output>
-- Final language for description/content is Traditional Chinese.
-- Description begins with the original, preserves entities and timepoints, and adds complete background and direction with quantitative framing when suitable.
-- Content is comprehensive, structured, consistent with the description, preserves important information and existing source markers, and avoids cross-section duplication.
-- Queries are specific, non-overlapping, time-bounded when helpful, follow language rules, and directly address identified gaps.
+<Quality Checks>
+- **Language**: The final `refined_description` and `refined_content` are written in Traditional Chinese.
+- **Description Output**:
+    - The `refined_description` output contains **only the additions or corrections**, not the full original description.
+    - The additions do not repeat information already present in the original description. If no new information can be added, the output is an empty string.
+    - If an inconsistency was found, the output starts with a **"Correction Note:"** paragraph.
+    - The additions integrate context from the full report, clarify background details (events, names, timepoints), and provide deeper, more comprehensive guidance for the section.
+    - The guidance clearly defines the analysis to be performed and the data required, using quantitative framing where appropriate.
+- **Content Output**:
+    - The `refined_content` is a comprehensive and well-structured narrative that aligns with the refined description.
+    - It **preserves all important information and existing source markers** (e.g., `[來源]`, `[Source]`) from the original content.
+    - It avoids duplicating content from other sections, using cross-references if needed.
+    - It adheres to all style and formatting rules: 100-2500 words, starts with a bold key point, uses `##` for the title, includes inline citations for all key claims, and ends with a correctly formatted `### Sources` section.
+- **Query Output**:
+    - Exactly **{number_of_queries}** queries are generated.
+    - Each query is specific, targets a clearly identified gap in the content, and is designed to be highly retrievable (using time bounds, entities, or operators where useful).
+    - Queries are non-overlapping (no semantic duplicates) and follow the specified language rules (Traditional Chinese for Taiwan-only topics, English otherwise).
 </Quality Checks>
 
 <Full Report Context>
