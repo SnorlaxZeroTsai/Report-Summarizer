@@ -2,6 +2,7 @@ from dotenv import load_dotenv
 
 load_dotenv(".env")
 import logging
+
 import sqlite3
 from typing import Literal
 
@@ -376,14 +377,16 @@ def write_section(
     # Write content to the section object
     section.content = section_content.content
 
+    # Early stop
+    if state["search_iterations"] >= max_search_depth:
+        return Command(update={"completed_sections": [section]}, goto=END)
+
     # Grade prompt
     section_grader_instructions_formatted = section_grader_instructions.format(
         section_topic=section.description,
         section=section.content,
         queries_history=queries_history,
     )
-    if state["search_iterations"] >= max_search_depth:
-        return Command(update={"completed_sections": [section]}, goto=END)
     # Feedback
     logger.info(
         f"Start grade section content of topic:{section.name}, Search iteration:{state['search_iterations']}"
@@ -467,16 +470,15 @@ def refine_sections(state: ReportState, config: RunnableConfig):
     logger.info("===Refining sections===")
     configurable = config["configurable"]
     number_of_queries = configurable["number_of_queries"]
-
     sections = state["completed_sections"]
     refined_sections = []
-    full_context = state["report_sections_from_research"]
 
     for section in sections:
         if not section.research:
             refined_sections.append([section, None])
             continue
-
+        # TODO: Refining in an orderly manner can help minimize content gaps, but it is somewhat inefficient. Is there a better approach?
+        full_context = format_sections(sections)
         system_instructions = refine_section_instructions.format(
             section_name=section.name,
             section_description=section.description,
@@ -498,7 +500,7 @@ def refine_sections(state: ReportState, config: RunnableConfig):
             tool_choice="required",
         )
         refined_section_data = refined_output.tool_calls[0]["args"]
-        section.description = refined_section_data["refined_description"]
+        section.description += "\n\n" + refined_section_data["refined_description"]
         section.content = refined_section_data["refined_content"]
         new_queries = refined_section_data["new_queries"]
 
