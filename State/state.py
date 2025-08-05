@@ -7,6 +7,16 @@ from pydantic import BaseModel, Field
 
 
 # %%
+def clearable_list_reducer(left: list | None, right: list | str | None) -> list:
+    if right == "__CLEAR__":
+        return []
+    if left is None:
+        left = []
+    if right is None:
+        right = []
+    return left + right
+
+
 class Section(BaseModel):
     name: str = Field(
         description="Name for this section of the report.",
@@ -20,9 +30,19 @@ class Section(BaseModel):
     content: str = Field(description="The content of the section.")
 
 
+class RefinedSection(BaseModel):
+    description: str = Field(
+        description="The refined and enhanced description of the section.",
+    )
+    content: str = Field(
+        description="The rewritten and improved content of the section.",
+    )
+
+
 class ReportStateInput(TypedDict):
     # Report topic
     topic: str
+    refine_iteration: int
 
 
 class ReportStateOutput(TypedDict):
@@ -33,12 +53,16 @@ class ReportStateOutput(TypedDict):
 class ReportState(TypedDict):
     # Report topic
     topic: str
+    # refine iteration
+    refine_iteration: int
+    # current refine iteration
+    curr_refine_iteration: int
     # Feedback on the report plan
     feedback_on_report_plan: Annotated[list, operator.add]
     # List of report sections
     sections: list[Section]
     # Send() API key
-    completed_sections: Annotated[list, operator.add]
+    completed_sections: Annotated[list, clearable_list_reducer]
     # String of any completed sections from research to write final sections
     report_sections_from_research: str
     # Final report
@@ -54,11 +78,17 @@ class Queries(BaseModel):
 
 
 class SectionState(TypedDict):
-    section: Section  # Report section
-    search_iterations: int  # Number of search iterations done
-    search_queries: list[SearchQuery]  # List of search queries
-    follow_up_queries: list[SearchQuery]  # List of follow-up search queries
-    source_str: str  # String of formatted source content from web search
+    # Report section
+    section: Section
+    # Number of search iterations done
+    search_iterations: int
+    # List of search queries
+    search_queries: list[SearchQuery]
+    # List of follow-up search queries
+    follow_up_queries: list[SearchQuery]
+    queries_history: Annotated[list, operator.add]
+    # String of formatted source content from web search
+    source_str: str
     # String of any completed sections from research to write final sections
     report_sections_from_research: str
     # Final key we duplicate in outer state for Send() API
@@ -66,6 +96,5 @@ class SectionState(TypedDict):
 
 
 class SectionOutputState(TypedDict):
-    completed_sections: list[
-        Section
-    ]  # Final key we duplicate in outer state for Send() API
+    # Final key we duplicate in outer state for Send() API
+    completed_sections: list[Section]

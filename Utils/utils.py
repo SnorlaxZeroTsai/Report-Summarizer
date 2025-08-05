@@ -12,6 +12,7 @@ from langchain.schema import Document
 from langchain_community.vectorstores import Chroma
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
+from langchain_community.chat_models import ChatLiteLLM
 from tavily import TavilyClient
 
 from State.state import Section
@@ -34,6 +35,54 @@ logger.addHandler(console_handler)
 
 
 # %%
+
+
+def call_llm(
+    model_name: str, backup_model_name: str, prompt: List, tool=None, tool_choice=None
+):
+    try:
+        temperature = 0
+        if model_name == "o3-mini" or model_name == "o4-mini":
+            temperature = 1
+        model = ChatLiteLLM(model=model_name, temperature=temperature)
+        if tool:
+            model = model.bind_tools(tools=tool, tool_choice=tool_choice)
+        response = model.invoke(prompt)
+    except Exception as e:
+        logger.error(e)
+        temperature = 0
+        if model_name == "o3-mini" or model_name == "o4-mini":
+            temperature = 1
+        model = ChatLiteLLM(model=backup_model_name, temperature=temperature)
+        if tool:
+            model = model.bind_tools(tools=tool, tool_choice=tool_choice)
+        response = model.invoke(prompt)
+    return response
+
+
+async def call_llm_async(
+    model_name: str, backup_model_name: str, prompt: List, tool=None, tool_choice=None
+):
+    try:
+        temperature = 0
+        if model_name == "o3-mini" or model_name == "o4-mini":
+            temperature = 1
+        model = ChatLiteLLM(model=model_name, temperature=temperature)
+        if tool:
+            model = model.bind_tools(tools=tool, tool_choice=tool_choice)
+        response = await model.ainvoke(prompt)
+    except Exception as e:
+        logger.error(e)
+        temperature = 0
+        if model_name == "o3-mini" or model_name == "o4-mini":
+            temperature = 1
+        model = ChatLiteLLM(model=backup_model_name, temperature=temperature)
+        if tool:
+            model = model.bind_tools(tools=tool, tool_choice=tool_choice)
+        response = await model.ainvoke(prompt)
+    return response
+
+
 def track_expanded_context(
     original_context: str,
     critical_context: str,
@@ -88,8 +137,8 @@ class ContentExtractor(object):
 
     def update_new_docs(self, files):
         text_splitter = RecursiveCharacterTextSplitter(
-            chunk_size=5000,
-            chunk_overlap=250,
+            chunk_size=300,
+            chunk_overlap=50,
             separators=["\n\n\n\n", "\n\n\n", "\n\n", "\n", ""],
         )
         new_docs = []
@@ -124,7 +173,7 @@ class ContentExtractor(object):
                 continue
             seen.add(res.page_content)
             expanded_content = track_expanded_context(
-                res.metadata["content"], res.page_content, 2500, 1250
+                res.metadata["content"], res.page_content, 1500, 500
             )
             return_res = deepcopy(res)
             return_res.metadata["content"] = expanded_content
@@ -210,7 +259,7 @@ def format_search_results_with_metadata(results: List[Document]):
     return formatted_text
 
 
-def tavily_search(search_queries, include_raw_content: True):
+def tavily_search(search_queries, include_raw_content: bool):
     search_docs = []
     for query in search_queries:
         search_docs.append(
@@ -227,7 +276,8 @@ def tavily_search(search_queries, include_raw_content: True):
 content_extractor = ContentExtractor()
 
 
-def selenium_api_search(search_queries, include_raw_content: True):
+def selenium_api_search(search_queries, include_raw_content: bool):
+    memo = set()
     search_docs = []
     for query in search_queries:
         output = requests.get(
@@ -235,7 +285,7 @@ def selenium_api_search(search_queries, include_raw_content: True):
             params={
                 "query": query,
                 "include_raw_content": include_raw_content,
-                "max_results": 5,
+                "max_results": 3,
                 "timeout": 40,
             },
         )
@@ -252,32 +302,30 @@ def selenium_api_search(search_queries, include_raw_content: True):
                         with open(file_path, "w") as f:
                             f.write(result["raw_content"])
                         large_files.append(file_path)
-
+                        result["raw_content"] = ""
                 except Exception as e:
                     logger.error(e)
-
-                finally:
-                    result["raw_content"] = ""
 
             if len(large_files) > 0:
                 content_extractor.update(large_files)
                 search_results = content_extractor.query(query)
-                for results in search_results:
-                    output["results"].append(
-                        {
-                            "url": results.metadata["path"],
-                            "title": results.metadata["path"],
-                            "content": "Raw content part has the most relevant information.",
-                            "raw_content": results.metadata["content"],
-                        }
-                    )
-
+                for idx, results in enumerate(search_results):
+                    if results.metadata["content"] not in memo:
+                        memo.add(results.metadata["content"])
+                        output["results"].append(
+                            {
+                                "url": f"{results.metadata['path']}_part{idx}",
+                                "title": results.metadata["path"],
+                                "content": "Raw content part has the most relevant information.",
+                                "raw_content": results.metadata["content"],
+                            }
+                        )
         search_docs.append(output)
     return search_docs
 
 
 def web_search_deduplicate_and_format_sources(
-    search_response, max_tokens_per_source, include_raw_content=True
+    search_response, include_raw_content=True
 ):
     # Collect all results
     sources_list = []
@@ -285,7 +333,11 @@ def web_search_deduplicate_and_format_sources(
         sources_list.extend(response["results"])
 
     # Deduplicate by URL
-    unique_sources = {source["url"]: source for source in sources_list}
+    sources_list = sorted(sources_list, key=lambda x: x.get("score", 1), reverse=True)
+    unique_sources = {}
+    for source in sources_list:
+        if source["url"] not in unique_sources:
+            unique_sources[source["url"]] = source
 
     # Format output
     formatted_text = "Sources:\n\n"
@@ -296,15 +348,14 @@ def web_search_deduplicate_and_format_sources(
             f"Most relevant content from source: {source['content']}\n===\n"
         )
         if include_raw_content:
-            # Using rough estimate of 4 characters per token
-            char_limit = max_tokens_per_source * 4
-            # Handle None raw_content
             raw_content = source.get("raw_content", "")
             if raw_content is None:
                 raw_content = ""
-                print(f"Warning: No raw_content found for source {source['url']}")
-            if len(raw_content) > char_limit:
-                raw_content = raw_content[:char_limit] + "... [truncated]"
-            formatted_text += f"Full source content limited to {max_tokens_per_source} tokens: {raw_content}\n\n"
-
+                logger.critical(
+                    f"Warning: No raw_content found for source {source['url']}"
+                )
+            formatted_text += f"{raw_content}\n\n"
     return formatted_text.strip()
+
+
+# %%

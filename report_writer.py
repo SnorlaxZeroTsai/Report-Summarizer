@@ -2,6 +2,7 @@ from dotenv import load_dotenv
 
 load_dotenv(".env")
 import logging
+
 import sqlite3
 from typing import Literal
 
@@ -9,6 +10,9 @@ import omegaconf
 
 config = omegaconf.OmegaConf.load("report_config.yaml")
 PROMPT_STYLE = config["PROMPT_STYLE"]
+
+PLANNER_MODEL_NAME = config["PLANNER_MODEL_NAME"]
+BACKUP_PLANNER_MODEL_NAME = config["BACKUP_PLANNER_MODEL_NAME"]
 
 VERIFY_MODEL_NAME = config["VERIFY_MODEL_NAME"]
 BACKUP_VERIFY_MODEL_NAME = config["BACKUP_VERIFY_MODEL_NAME"]
@@ -42,8 +46,11 @@ else:
     raise ValueError("Only support indutry and technical_research prompt template")
 from copy import deepcopy
 
+from agentic_search import agentic_search_graph
 from retriever import hybrid_retriever
 from State.state import (
+    RefinedSection,
+    clearable_list_reducer,
     ReportState,
     ReportStateInput,
     ReportStateOutput,
@@ -51,16 +58,21 @@ from State.state import (
     SectionOutputState,
     SectionState,
 )
-from Tools.tools import feedback_formatter, queries_formatter, section_formatter
+from Tools.tools import (
+    feedback_formatter,
+    queries_formatter,
+    refine_section_formatter,
+    section_formatter,
+)
 from Utils.utils import (
+    call_llm,
     format_human_feedback,
     format_search_results_with_metadata,
     format_sections,
     selenium_api_search,
-    web_search_deduplicate_and_format_sources,
     track_expanded_context,
+    web_search_deduplicate_and_format_sources,
 )
-from typing import List
 
 logger = logging.getLogger("AgentLogger")
 logger.setLevel(logging.DEBUG)
@@ -77,21 +89,14 @@ logger.info(
 )
 
 
-def call_llm(
-    model_name: str, backup_model_name: str, prompt: List, tool=None, tool_choice=None
-):
-    try:
-        model = ChatLiteLLM(model=model_name, temperature=0)
-        if tool:
-            model = model.bind_tools(tools=tool, tool_choice=tool_choice)
-        response = model.invoke(prompt)
-    except Exception as e:
-        logger.error(e)
-        model = ChatLiteLLM(model=backup_model_name, temperature=0)
-        if tool:
-            model = model.bind_tools(tools=tool, tool_choice=tool_choice)
-        response = model.invoke(prompt)
-    return response
+def clearable_list_reducer(left: list | None, right: list | str | None) -> list:
+    if right == "__CLEAR__":
+        return []
+    if left is None:
+        left = []
+    if right is None:
+        right = []
+    return left + right
 
 
 def search_relevance_doc(queries):
@@ -135,10 +140,6 @@ def generate_report_plan(state: ReportState, config: RunnableConfig):
     if not use_web and not use_local_db:
         raise ValueError("Should use at least one searching tool")
 
-    logger.info(
-        f"topic:{topic}, number_of_queries:{number_of_queries}, use_web:{use_web}"
-    )
-
     # Convert JSON object to string if necessary
     if isinstance(report_structure, dict):
         report_structure = str(report_structure)
@@ -169,16 +170,13 @@ def generate_report_plan(state: ReportState, config: RunnableConfig):
 
     # perform searching
     logger.info("===Start report planner query searching.===")
-
     source_str = ""
     if use_local_db:
         results = search_relevance_doc(query_list)
         source_str = format_search_results_with_metadata(results)
     if use_web:
         web_results = selenium_api_search(query_list, False)
-        source_str2 = web_search_deduplicate_and_format_sources(
-            web_results, 2000, False
-        )
+        source_str2 = web_search_deduplicate_and_format_sources(web_results, False)
         source_str = source_str + "===\n\n" + source_str2
     logger.info("===End report planner query searching.===")
 
@@ -192,8 +190,8 @@ def generate_report_plan(state: ReportState, config: RunnableConfig):
     )
     # Generate sections
     report_sections = call_llm(
-        VERIFY_MODEL_NAME,
-        BACKUP_VERIFY_MODEL_NAME,
+        PLANNER_MODEL_NAME,
+        BACKUP_PLANNER_MODEL_NAME,
         prompt=[SystemMessage(content=system_instructions_sections)]
         + [
             HumanMessage(
@@ -207,7 +205,7 @@ def generate_report_plan(state: ReportState, config: RunnableConfig):
         Section(**tool_call["args"]) for tool_call in report_sections.tool_calls
     ]
     logger.info("===End report plan generation.===")
-    return {"sections": sections}
+    return {"sections": sections, "curr_refine_iteration": 0}
 
 
 def human_feedback(
@@ -248,27 +246,31 @@ def human_feedback(
 
 
 def generate_queries(state: SectionState, config: RunnableConfig):
-
     section = state["section"]
+    queries = state.get("search_queries", [])
+    if queries:
+        return {"search_queries": queries}
 
     configurable = config["configurable"]
     number_of_queries = configurable["number_of_queries"]
 
-    llm = ChatLiteLLM(model=MODEL_NAME, temperature=0)
-    structure_llm = llm.bind_tools(tools=[queries_formatter], tool_choice="required")
-
     system_instruction = query_writer_instructions.format(
         topic=section.description, number_of_queries=number_of_queries
     )
+
     logger.info(f"== Start generate topic:{section.name} queries==")
-    kwargs = structure_llm.invoke(
-        [SystemMessage(content=system_instruction)]
-        + [HumanMessage(content="Generate search queries on the provided topic.")]
+    kwargs = call_llm(
+        MODEL_NAME,
+        BACKUP_MODEL_NAME,
+        prompt=[SystemMessage(content=system_instruction)]
+        + [HumanMessage(content="Generate search queries on the provided topic.")],
+        tool=[queries_formatter],
+        tool_choice="required",
     )
     logger.info(f"== End generate topic:{section.name} queries==")
 
     tool_calls = kwargs.tool_calls[0]["args"]
-    return queries_formatter.invoke(tool_calls)
+    return {"search_queries": tool_calls["queries"]}
 
 
 def search_db(state: SectionState, config: RunnableConfig):
@@ -276,6 +278,7 @@ def search_db(state: SectionState, config: RunnableConfig):
     configurable = config["configurable"]
     use_web = configurable.get("use_web", False)
     use_local_db = configurable.get("use_local_db", False)
+
     if not use_web and not use_local_db:
         raise ValueError("Should use at least one searching tool")
 
@@ -287,24 +290,31 @@ def search_db(state: SectionState, config: RunnableConfig):
     if use_local_db:
         results = search_relevance_doc(query_list)
         source_str = format_search_results_with_metadata(results)
+
     if use_web:
-        web_results = selenium_api_search(query_list, True)
-        source_str2 = web_search_deduplicate_and_format_sources(web_results, 5000, True)
+        search_results = agentic_search_graph.invoke({"queries": query_list})
+        source_str2 = search_results["source_str"]
         source_str = source_str + "===\n\n" + source_str2
     logger.info(f"== End searching topic:{state['section'].name}. ==")
 
     return {
         "source_str": source_str,
         "search_iterations": state["search_iterations"] + 1,
+        "queries_history": query_list,
     }
 
 
 def write_section(
     state: SectionState, config: RunnableConfig
 ) -> Command[Literal[END, "search_db"]]:
-    # Get state
+    # # Get state
     section = state["section"]
     follow_up_queries = state.get("follow_up_queries", None)
+
+    queries_history = ""
+    for idx, q in enumerate(state["queries_history"]):
+        queries_history += f"{idx+1}. {q}\n"
+
     follow_up_questions = ""
     if follow_up_queries is not None:
         for idx, q in enumerate(follow_up_queries):
@@ -364,15 +374,19 @@ def write_section(
     logger.info(
         f"End generate section content of topic:{section.name}, Search iteration:{state['search_iterations']}"
     )
-
     # Write content to the section object
     section.content = section_content.content
 
+    # Early stop
+    if state["search_iterations"] >= max_search_depth:
+        return Command(update={"completed_sections": [section]}, goto=END)
+
     # Grade prompt
     section_grader_instructions_formatted = section_grader_instructions.format(
-        section_topic=section.description, section=section.content
+        section_topic=section.description,
+        section=section.content,
+        queries_history=queries_history,
     )
-
     # Feedback
     logger.info(
         f"Start grade section content of topic:{section.name}, Search iteration:{state['search_iterations']}"
@@ -411,8 +425,9 @@ def write_section(
             tool=[feedback_formatter],
             tool_choice="required",
         )
+        feedback = feedback.tool_calls[0]["args"]
 
-    if feedback["grade"] == "pass" or state["search_iterations"] >= max_search_depth:
+    if feedback["grade"] == "pass":
         logger.info(f"Section:{section.name} pass model check or reach search depth.")
         # Publish the section to completed sections
         return Command(update={"completed_sections": [section]}, goto=END)
@@ -431,15 +446,83 @@ def write_section(
         )
 
 
+def route_node(state: ReportState):
+    completed_sections = state["completed_sections"]
+    completed_report_sections = format_sections(completed_sections)
+    return {"report_sections_from_research": completed_report_sections}
+
+
+def should_refine(state: ReportState):
+    logger.info("===Checking if sections should be refined===")
+    if state["curr_refine_iteration"] < state["refine_iteration"]:
+        return "refine_sections"
+    else:
+        return "gather_complete_section"
+
+
 def gather_complete_section(state: ReportState):
     completed_sections = state["completed_sections"]
     completed_report_sections = format_sections(completed_sections)
     return {"report_sections_from_research": completed_report_sections}
 
 
+def refine_sections(state: ReportState, config: RunnableConfig):
+    logger.info("===Refining sections===")
+    configurable = config["configurable"]
+    number_of_queries = configurable["number_of_queries"]
+    sections = state["completed_sections"]
+    refined_sections = []
+
+    for section in sections:
+        if not section.research:
+            refined_sections.append([section, None])
+            continue
+        # TODO: Refining in an orderly manner can help minimize content gaps, but it is somewhat inefficient. Is there a better approach?
+        full_context = format_sections(sections)
+        system_instructions = refine_section_instructions.format(
+            section_name=section.name,
+            section_description=section.description,
+            section_content=section.content,
+            full_context=full_context,
+            number_of_queries=number_of_queries,
+        )
+
+        refined_output = call_llm(
+            WRITER_MODEL_NAME,
+            BACKUP_WRITER_MODEL_NAME,
+            [SystemMessage(content=system_instructions)]
+            + [
+                HumanMessage(
+                    content="Refine the section based on the full report context."
+                )
+            ],
+            tool=[refine_section_formatter],
+            tool_choice="required",
+        )
+        refined_section_data = refined_output.tool_calls[0]["args"]
+        section.description += "\n\n" + refined_section_data["refined_description"]
+        section.content = refined_section_data["refined_content"]
+        new_queries = refined_section_data["new_queries"]
+
+        refined_sections.append([section, new_queries])
+    return Command(
+        update={
+            "completed_sections": "__CLEAR__",
+            "curr_refine_iteration": state["curr_refine_iteration"] + 1,
+        },
+        goto=[
+            Send(
+                "build_section_with_web_research",
+                {"section": s, "search_iterations": 0, "search_queries": q},
+            )
+            for s, q in refined_sections
+            if s.research
+        ],
+    )
+
+
 def initiate_final_section_writing(state: ReportState):
 
-    # Kick off section writing in parallel via Send() API for any sections that do not require research
     return [
         Send(
             "write_final_sections",
@@ -496,35 +579,61 @@ def compile_final_report(state: ReportState):
     return {"final_report": all_sections}
 
 
-section_builder = StateGraph(SectionState, output=SectionOutputState)
-section_builder.add_node("generate_queries", generate_queries)
-section_builder.add_node("search_db", search_db)
-section_builder.add_node("write_section", write_section)
+class ReportGraphBuilder:
+    def __init__(self, checkpointer=None):
+        if checkpointer is None:
+            sqlite_conn = sqlite3.connect("checkpoints.sqlite", check_same_thread=False)
+            self.checkpointer = SqliteSaver(sqlite_conn)
+        else:
+            self.checkpointer = checkpointer
+        self._graph = None
 
-section_builder.add_edge(START, "generate_queries")
-section_builder.add_edge("generate_queries", "search_db")
-section_builder.add_edge("search_db", "write_section")
+    def get_graph(self):
+        if self._graph is None:
+            section_builder = StateGraph(SectionState, output=SectionOutputState)
+            section_builder.add_node("generate_queries", generate_queries)
+            section_builder.add_node("search_db", search_db)
+            section_builder.add_node("write_section", write_section)
 
-builder = StateGraph(ReportState, input=ReportStateInput, output=ReportStateOutput)
-builder.add_node("generate_report_plan", generate_report_plan)
-builder.add_node("human_feedback", human_feedback)
-builder.add_node("build_section_with_web_research", section_builder.compile())
-builder.add_node("gather_complete_section", gather_complete_section)
-builder.add_node("write_final_sections", write_final_sections)
-builder.add_node("compile_final_report", compile_final_report)
+            section_builder.add_edge(START, "generate_queries")
+            section_builder.add_edge("generate_queries", "search_db")
+            section_builder.add_edge("search_db", "write_section")
 
-builder.add_edge(START, "generate_report_plan")
-builder.add_edge("generate_report_plan", "human_feedback")
-builder.add_edge("build_section_with_web_research", "gather_complete_section")
-builder.add_conditional_edges(
-    "gather_complete_section",
-    initiate_final_section_writing,
-    ["write_final_sections"],
-)
-builder.add_edge("write_final_sections", "compile_final_report")
-builder.add_edge("compile_final_report", END)
-sqlite_conn = sqlite3.connect("checkpoints.sqlite", check_same_thread=False)
-saver = SqliteSaver(sqlite_conn)
-# MemorySaver()
-graph = builder.compile(checkpointer=saver)
-# %%
+            builder = StateGraph(
+                ReportState, input=ReportStateInput, output=ReportStateOutput
+            )
+            builder.add_node("generate_report_plan", generate_report_plan)
+            builder.add_node("human_feedback", human_feedback)
+            builder.add_node(
+                "build_section_with_web_research", section_builder.compile()
+            )
+            builder.add_node("route", route_node)
+            builder.add_node("refine_sections", refine_sections)
+            builder.add_node("gather_complete_section", gather_complete_section)
+            builder.add_node("write_final_sections", write_final_sections)
+            builder.add_node("compile_final_report", compile_final_report)
+
+            builder.add_edge(START, "generate_report_plan")
+            builder.add_edge("generate_report_plan", "human_feedback")
+            builder.add_edge("build_section_with_web_research", "route")
+            builder.add_conditional_edges(
+                "route",
+                should_refine,
+                {
+                    "refine_sections": "refine_sections",
+                    "gather_complete_section": "gather_complete_section",
+                },
+            )
+            builder.add_conditional_edges(
+                "gather_complete_section",
+                initiate_final_section_writing,
+                ["write_final_sections"],
+            )
+            builder.add_edge("write_final_sections", "compile_final_report")
+            builder.add_edge("compile_final_report", END)
+            self._graph = builder.compile(checkpointer=self.checkpointer)
+        return self._graph
+
+
+report_graph_builder = ReportGraphBuilder()
+graph = report_graph_builder.get_graph()
